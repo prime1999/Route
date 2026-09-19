@@ -45,7 +45,7 @@ import { createMcpServer } from "./server/mcpServer.js";
  *
  * During local development:
  *
- *     http://localhost:3000/mcp
+ *     http://localhost:3001/mcp
  */
 const PORT = Number(process.env.PORT ?? 3001);
 
