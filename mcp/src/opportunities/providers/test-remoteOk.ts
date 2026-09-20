@@ -1,67 +1,68 @@
-/**
- * Remote OK Provider Test
- *
- * This file performs a direct integration test of the Remote OK provider.
- *
- * The purpose is intentionally narrow:
- *
- * 1. Instantiate the RemoteOkProvider.
- * 2. Ask it for job opportunities.
- * 3. Verify that the provider can fetch the live Remote OK API.
- * 4. Verify that the provider normalizes the external data into Route's
- *    common Opportunity structure.
- *
- * We are NOT calling the MCP server here.
- *
- * Keeping this test separate allows us to prove that the provider works
- * independently before introducing another layer of complexity.
- */
-
 import { RemoteOkProvider } from "./remoteOk.js";
 
 /**
- * Create the provider instance.
+ * Manual test for the Remote OK provider.
  *
- * The provider contains all Remote OK-specific logic, so the test itself
- * should not need to know anything about Remote OK's API response format.
+ * This test calls the real Remote OK API and verifies that:
+ *
+ * 1. Jobs can be retrieved.
+ * 2. Keyword filtering works.
+ * 3. The provider returns the new OpportunityProviderResult
+ *    structure.
  */
-const provider = new RemoteOkProvider();
+async function main() {
+  const provider = new RemoteOkProvider();
 
-try {
-  /**
-   * Search for jobs through the provider.
-   *
-   * Passing type: "job" makes our intent explicit and also verifies that
-   * the provider correctly handles Route's generic search parameters.
-   */
-  const opportunities = await provider.search({
-    type: "job",
+  console.log("=== TEST 1: Default search ===");
+
+  const defaultResult = await provider.search({
+    limit: 10,
   });
 
-  /**
-   * Print the number of opportunities returned.
-   *
-   * A successful non-zero result tells us that the external request,
-   * parsing, normalization, and return path are working together.
-   */
-  console.log(`Found ${opportunities.length} normalized opportunities.`);
+  console.log(`Found ${defaultResult.opportunities.length} jobs`);
 
-  /**
-   * Print only the first three opportunities.
-   *
-   * We don't want to flood the terminal with the entire Remote OK feed.
-   * Three records are enough to inspect whether our normalized structure
-   * looks correct.
-   */
-  console.log(JSON.stringify(opportunities.slice(0, 3), null, 2));
-} catch (error) {
-  /**
-   * Surface the error clearly during development.
-   *
-   * We rethrow the error after logging it so that the process exits with
-   * a failure status. That makes the test useful later in automated CI.
-   */
+  for (const opportunity of defaultResult.opportunities) {
+    console.log(`- ${opportunity.title} | ${opportunity.organization}`);
+  }
+
+  console.log("\nNext cursor:", defaultResult.nextCursor ?? "none");
+
+  console.log("\n=== TEST 2: TypeScript jobs ===");
+
+  const typescriptResult = await provider.search({
+    keyword: "typescript",
+    limit: 10,
+  });
+
+  console.log(`Found ${typescriptResult.opportunities.length} TypeScript jobs`);
+
+  for (const opportunity of typescriptResult.opportunities) {
+    console.log(`- ${opportunity.title} | ${opportunity.organization}`);
+  }
+
+  console.log("\nNext cursor:", typescriptResult.nextCursor ?? "none");
+
+  console.log("\n=== TEST 3: Remote filter ===");
+
+  const remoteResult = await provider.search({
+    keyword: "developer",
+    remote: true,
+    limit: 10,
+  });
+
+  console.log(`Found ${remoteResult.opportunities.length} remote jobs`);
+
+  for (const opportunity of remoteResult.opportunities) {
+    console.log(
+      `- ${opportunity.title} | ${opportunity.organization} | remote=${opportunity.remote}`,
+    );
+  }
+
+  console.log("\nNext cursor:", remoteResult.nextCursor ?? "none");
+}
+
+main().catch((error) => {
   console.error("Remote OK provider test failed:", error);
 
-  process.exitCode = 1;
-}
+  process.exit(1);
+});

@@ -1,379 +1,260 @@
-/**
- * Remote OK Opportunity Provider
- * ==============================
- *
- * This provider is responsible for retrieving job opportunities
- * from Remote OK and converting them into Route's normalized
- * Opportunity format.
- *
- * The important architectural rule here is:
- *
- *     Remote OK format
- *           ↓
- *     RemoteOkProvider
- *           ↓
- *     Route Opportunity[]
- *
- * Nothing outside this provider should need to understand the
- * structure of Remote OK's response.
- *
- * This keeps the MCP tools provider-agnostic.
- */
-
 import type { Opportunity } from "../types.js";
 
-import type { OpportunityProvider, OpportunitySearchParams } from "./types.js";
+import type {
+  OpportunityProvider,
+  OpportunityProviderResult,
+  OpportunitySearchParams,
+} from "./types.js";
 
 /**
- * Remote OK exposes a public JSON feed at this endpoint.
+ * Remote OK's public jobs API.
  *
- * We deliberately keep the URL inside the provider instead of
- * putting it inside an MCP tool.
- *
- * If Remote OK changes its endpoint in the future, only this
- * provider should need to change.
+ * Remote OK exposes its jobs through a JSON endpoint, which
+ * means Route does not need to scrape the website.
  */
 const REMOTE_OK_API_URL = "https://remoteok.com/api";
 
 /**
- * Remote OK job response.
+ * Shape of a raw job returned by Remote OK.
  *
- * Remote OK returns more fields than Route currently needs.
- *
- * We therefore define only the fields that Route currently
- * consumes.
- *
- * The index signature allows additional fields returned by
- * Remote OK without forcing us to model every single field.
+ * We only describe the fields Route currently needs.
  */
 interface RemoteOkJob {
-  /**
-   * Remote OK's unique identifier for the job.
-   */
   id?: string | number;
 
-  /**
-   * Job title.
-   */
+  slug?: string;
+
   position?: string;
 
-  /**
-   * Company name.
-   */
   company?: string;
 
-  /**
-   * Job description, generally containing HTML.
-   */
   description?: string;
 
-  /**
-   * Tags associated with the job.
-   */
   tags?: string[];
 
-  /**
-   * Location information.
-   */
   location?: string;
 
-  /**
-   * Canonical URL for the job.
-   */
   url?: string;
 
-  /**
-   * Alternative URL field used by some Remote OK responses.
-   */
   apply_url?: string;
 
-  /**
-   * Indicates whether the job is remote.
-   */
-  remote?: boolean;
+  date?: string;
 
-  /**
-   * Allows additional Remote OK fields that we don't currently
-   * need to model explicitly.
-   */
-  [key: string]: unknown;
+  epoch?: number;
+
+  logo?: string;
+
+  salary_min?: number;
+
+  salary_max?: number;
 }
 
 /**
- * Remote OK returns a small disclaimer/metadata object as part
- * of the response in addition to job objects.
+ * Remote OK's API can contain objects that are not jobs.
  *
- * We therefore need to distinguish actual jobs from metadata.
- *
- * A simple type guard lets us safely identify objects that look
- * like actual job listings.
+ * This type guard makes sure we only process objects that
+ * actually look like job records.
  */
 function isRemoteOkJob(value: unknown): value is RemoteOkJob {
-  /**
-   * First make sure the value is an object and not null.
-   */
   if (typeof value !== "object" || value === null) {
     return false;
   }
 
-  /**
-   * Convert the unknown object into a record so we can inspect
-   * individual fields safely.
-   */
-  const record = value as Record<string, unknown>;
+  const job = value as Record<string, unknown>;
 
-  /**
-   * A real Remote OK job should have at least a position or
-   * company field.
-   *
-   * This prevents metadata objects from being treated as jobs.
-   */
-  return (
-    typeof record.position === "string" || typeof record.company === "string"
-  );
+  return typeof job.position === "string" && typeof job.company === "string";
 }
 
 /**
- * Convert a Remote OK job into Route's normalized Opportunity
- * structure.
- *
- * This is the most important responsibility of the provider.
- *
- * Remote OK calls the company "company" and the job title
- * "position".
- *
- * Route doesn't care about those source-specific names.
- *
- * Route uses:
- *
- *     organization
- *     title
+ * Normalize a Remote OK job into Route's common
+ * Opportunity model.
  */
-function normalizeRemoteOkJob(job: RemoteOkJob): Opportunity | null {
+function normalizeJob(job: RemoteOkJob): Opportunity {
   /**
-   * A job without a title or URL isn't useful to an AI agent
-   * or a user.
+   * Remote OK normally provides a direct URL for the job.
    *
-   * Instead of returning malformed data, we skip it.
+   * If it doesn't, construct a fallback URL from the slug.
    */
-  if (!job.position || !job.url) {
-    return null;
-  }
+  const url =
+    job.url ??
+    (job.slug
+      ? `https://remoteok.com/remote-jobs/${job.slug}`
+      : "https://remoteok.com");
 
   /**
-   * Remote OK sometimes provides an apply URL separately from
-   * the listing URL.
-   *
-   * For the initial Route model, the canonical opportunity URL
-   * is the listing URL.
-   *
-   * We preserve the source URL so the provider can be traced.
+   * Remote OK jobs are specifically sourced from a remote-job
+   * platform, so Route can safely mark them as remote.
    */
   return {
-    /**
-     * Prefixing the source ID gives us a predictable and
-     * provider-scoped identifier.
-     *
-     * Example:
-     *
-     *     remoteok-123456
-     */
-    id: `remoteok-${String(job.id ?? job.url)}`,
+    id: `remoteok:${String(
+      job.id ?? job.slug ?? `${job.company}-${job.position}`,
+    )}`,
 
-    /**
-     * Remote OK calls this field "position".
-     */
-    title: job.position,
+    title: job.position ?? "Untitled job",
 
-    /**
-     * This provider only returns jobs.
-     */
     type: "job",
 
-    /**
-     * Remote OK calls the organization/company field "company".
-     */
-    organization: job.company ?? "Unknown organization",
+    organization: job.company ?? "Unknown company",
 
-    /**
-     * The description can be absent from some listings.
-     *
-     * We use an empty string rather than making the core
-     * Opportunity field optional.
-     */
     description: job.description ?? "",
 
-    /**
-     * Canonical Remote OK listing URL.
-     */
-    url: job.url,
+    url,
 
-    /**
-     * Provider identifier used throughout Route.
-     */
     source: "remoteok",
 
-    /**
-     * For Remote OK, the listing URL is currently also the
-     * source URL.
-     */
-    sourceUrl: job.url,
+    sourceUrl: REMOTE_OK_API_URL,
 
-    /**
-     * Preserve location information when available.
-     */
     location: job.location,
 
-    /**
-     * Remote OK is a remote-job platform, but we still preserve
-     * the actual field when the source provides it.
-     */
-    remote: job.remote ?? true,
+    remote: true,
 
-    /**
-     * Tags are useful for future filtering and matching.
-     *
-     * We keep them inside metadata rather than polluting the
-     * core Opportunity interface with provider-specific fields.
-     */
     metadata: {
       tags: job.tags ?? [],
 
-      /**
-       * Preserve the provider's application URL when available.
-       * This is useful later when Route supports an "act" flow.
-       */
       applyUrl: job.apply_url,
+
+      publishedAt: job.date,
+
+      epoch: job.epoch,
+
+      logo: job.logo,
+
+      salaryMin: job.salary_min,
+
+      salaryMax: job.salary_max,
     },
   };
 }
 
 /**
- * Remote OK provider implementation.
+ * Determines whether a normalized opportunity matches
+ * the requested keyword.
  *
- * This class satisfies the OpportunityProvider interface,
- * meaning Route can treat it exactly like any future provider.
+ * We search across:
+ *
+ * - title
+ * - organization
+ * - description
+ * - tags
+ *
+ * This gives the AI more useful keyword matching than
+ * checking only the job title.
+ */
+function matchesKeyword(opportunity: Opportunity, keyword?: string): boolean {
+  if (!keyword) {
+    return true;
+  }
+
+  const normalizedKeyword = keyword.trim().toLowerCase();
+
+  if (!normalizedKeyword) {
+    return true;
+  }
+
+  const searchableText = [
+    opportunity.title,
+
+    opportunity.organization,
+
+    opportunity.description,
+
+    ...(Array.isArray(opportunity.metadata?.tags)
+      ? opportunity.metadata.tags
+      : []),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return searchableText.includes(normalizedKeyword);
+}
+
+/**
+ * Remote OK opportunity provider.
  */
 export class RemoteOkProvider implements OpportunityProvider {
-  /**
-   * Provider identifier.
-   *
-   * This eventually appears in Opportunity.source.
-   */
   readonly name = "remoteok";
 
-  /**
-   * Remote OK currently provides jobs for our purposes.
-   */
   readonly supportedTypes = ["job"] as const;
 
   /**
-   * Search Remote OK for jobs.
+   * Search Remote OK for matching jobs.
    *
-   * The provider receives generic Route search parameters
-   * rather than Remote OK-specific arguments.
+   * Remote OK currently exposes a single JSON feed rather
+   * than the page-based pagination used by Devpost.
+   *
+   * Therefore this provider:
+   *
+   * 1. Fetches the feed.
+   * 2. Normalizes the jobs.
+   * 3. Applies Route's filters.
+   * 4. Returns up to the requested limit.
+   *
+   * There is currently no continuation cursor because the
+   * Remote OK endpoint does not expose a stable pagination
+   * mechanism that we can safely continue from.
    */
-  async search(params: OpportunitySearchParams): Promise<Opportunity[]> {
+  async search(
+    params: OpportunitySearchParams,
+  ): Promise<OpportunityProviderResult> {
     /**
-     * Remote OK only provides jobs.
+     * This provider only handles jobs.
      *
-     * If Route asks this provider for hackathons, there is
-     * nothing for this provider to return.
+     * The Provider Manager normally handles provider selection,
+     * but this defensive check prevents accidental direct calls
+     * with an incompatible type.
      */
-    if (params.type && params.type !== "job") {
-      return [];
+    if (params.type && params.type !== "job" && params.type !== "all") {
+      return {
+        opportunities: [],
+      };
     }
 
     /**
-     * Fetch the public Remote OK JSON feed.
-     *
-     * Native fetch is used because Node.js 22 includes a
-     * built-in fetch implementation.
+     * Default provider target.
      */
-    const response = await fetch(REMOTE_OK_API_URL, {
-      headers: {
-        /**
-         * Identify Route politely to the upstream service.
-         */
-        "User-Agent": "Route-MCP/0.1.0",
-      },
-    });
+    const limit =
+      params.limit && params.limit > 0 ? Math.floor(params.limit) : 10;
 
     /**
-     * A non-success HTTP status means we should not attempt
-     * to parse the response as a valid job feed.
+     * Fetch the Remote OK JSON feed.
      */
+    const response = await fetch(REMOTE_OK_API_URL);
+
     if (!response.ok) {
-      throw new Error(`Remote OK request failed with HTTP ${response.status}`);
+      throw new Error(
+        `Remote OK API request failed: ${response.status} ${response.statusText}`,
+      );
     }
 
     /**
-     * Parse the JSON response.
-     *
-     * The result is intentionally treated as unknown because
-     * external data cannot be trusted merely because we expect
-     * a particular structure.
+     * Remote OK returns an array containing job records.
      */
-    const data: unknown = await response.json();
+    const data = (await response.json()) as unknown;
 
     /**
-     * Remote OK returns an array containing job listings and
-     * metadata.
+     * Make sure we actually received an array before
+     * processing the response.
      */
     if (!Array.isArray(data)) {
-      throw new Error("Remote OK returned an unexpected response format.");
+      throw new Error("Remote OK API returned an unexpected response.");
     }
 
     /**
-     * Convert only actual job objects into Route opportunities.
+     * Convert valid raw jobs into Route opportunities.
      */
-    const opportunities = data
-      .filter(isRemoteOkJob)
-      .map(normalizeRemoteOkJob)
-      .filter(
-        (opportunity): opportunity is Opportunity => opportunity !== null,
-      );
+    const opportunities = data.filter(isRemoteOkJob).map(normalizeJob);
 
     /**
-     * Apply keyword filtering locally.
-     *
-     * We do this after fetching because the public Remote OK
-     * feed gives us the complete job list.
-     *
-     * Later, this can be optimized if Remote OK provides a
-     * more efficient server-side filtering mechanism.
+     * Apply the keyword filter.
      */
-    const filtered = params.keyword
-      ? opportunities.filter((opportunity) => {
-          /**
-           * Combine the most useful searchable fields.
-           */
-          const searchableText = [
-            opportunity.title,
-            opportunity.organization,
-            opportunity.description,
-            ...(Array.isArray(opportunity.metadata?.tags)
-              ? opportunity.metadata.tags
-              : []),
-          ]
-            .join(" ")
-            .toLowerCase();
-
-          /**
-           * Perform a simple case-insensitive substring
-           * search for the requested keyword.
-           */
-          return searchableText.includes(params.keyword!.toLowerCase());
-        })
-      : opportunities;
+    const filtered = opportunities.filter((opportunity) =>
+      matchesKeyword(opportunity, params.keyword),
+    );
 
     /**
-     * Apply the remote filter when explicitly requested.
-     *
-     * We only filter when `remote` is true.
-     *
-     * If the value is undefined, we leave the provider's
-     * results unchanged.
+     * Remote OK jobs are already remote, but keeping the
+     * remote filter here maintains the common provider contract.
      */
     const remoteFiltered =
       params.remote === true
@@ -381,11 +262,20 @@ export class RemoteOkProvider implements OpportunityProvider {
         : filtered;
 
     /**
-     * Return normalized Route opportunities.
-     *
-     * At this point, the rest of Route no longer needs to know
-     * anything about Remote OK's response format.
+     * Return only the requested number of matching jobs.
      */
-    return remoteFiltered;
+    const results = remoteFiltered.slice(0, limit);
+
+    /**
+     * Remote OK currently does not provide a reliable
+     * continuation cursor, so we deliberately return only
+     * the opportunities.
+     *
+     * The Search Service will understand that there is no
+     * continuation available for this provider.
+     */
+    return {
+      opportunities: results,
+    };
   }
 }

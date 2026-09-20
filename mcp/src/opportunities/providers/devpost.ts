@@ -1,233 +1,159 @@
 import type { Opportunity } from "../types.js";
 
-import type { OpportunityProvider, OpportunitySearchParams } from "./types.js";
+import type {
+  OpportunityProvider,
+  OpportunityProviderResult,
+  OpportunitySearchParams,
+} from "./types.js";
 
 /**
- * Devpost exposes a structured JSON endpoint that powers its
- * hackathon listing.
+ * Devpost's public API endpoint.
  *
- * We use this endpoint instead of scraping the public HTML page.
- *
- * This is important because the normal Devpost page can return
- * an AWS WAF challenge when requested from a plain Node.js
- * fetch() call.
+ * We use the API endpoint rather than scraping the normal
+ * Devpost HTML page because the HTML page is protected by
+ * AWS WAF while the API provides structured hackathon data.
  */
 const DEVPOST_API_URL = "https://devpost.com/api/hackathons";
 
 /**
- * Devpost currently returns a small number of hackathons per
- * API page.
+ * Devpost currently returns 9 hackathons per API page.
  *
- * Route does NOT expose this pagination to the AI client.
- *
- * Pagination is an internal provider concern.
+ * This is an external-provider detail and therefore stays
+ * inside the Devpost provider rather than leaking into Route's
+ * general search model.
  */
 const DEFAULT_PAGE_SIZE = 9;
 
 /**
  * Safety limit for a single search.
  *
- * This prevents a bad request or an unusually selective keyword
- * from causing Route to request an unbounded number of Devpost
- * pages.
- *
- * This is intentionally an internal implementation detail.
- *
- * We can tune this later after measuring real-world latency.
+ * This prevents Route from accidentally requesting hundreds
+ * or thousands of Devpost pages because of an unusual query.
  */
 const MAX_PAGES_PER_SEARCH = 10;
 
 /**
- * Represents a theme/category returned by Devpost.
- */
-interface DevpostTheme {
-  name?: string;
-}
-
-/**
- * Represents the prize-count information returned by Devpost.
- */
-interface DevpostPrizeCounts {
-  cash?: number;
-  other?: number;
-}
-
-/**
- * Represents a single hackathon returned by the Devpost API.
+ * Raw hackathon shape returned by Devpost.
  *
- * We intentionally model only the fields Route currently needs.
- *
- * The API may contain additional fields. Route does not need to
- * mirror the entire Devpost response.
+ * We only describe the fields Route currently needs.
  */
 interface DevpostHackathon {
-  id: number | string;
-  title?: string;
+  id: number;
+  title: string;
   displayed_location?: {
     location?: string;
   };
   open_state?: string;
-  url?: string;
+  url: string;
   time_left_to_submission?: string;
   submission_period_dates?: string;
-  themes?: DevpostTheme[];
+  themes?: Array<{
+    name?: string;
+  }>;
   prize_amount?: string;
-  prizes_counts?: DevpostPrizeCounts;
+  prizes_counts?: {
+    cash?: number;
+    other?: number;
+  };
   registrations_count?: number;
   organization_name?: string;
   winners_announced?: boolean;
+  invite_only?: boolean;
+  eligibility_requirement_invite_only_description?: string | null;
+  managed_by_devpost_badge?: boolean;
   submission_gallery_url?: string;
   start_a_submission_url?: string;
-  invite_only?: boolean;
-  eligibility_requirement_invite_only_description?: string;
-  managed_by_devpost_badge?: boolean;
 }
 
 /**
- * Represents the pagination metadata returned by Devpost.
+ * Shape of the response returned by Devpost.
  */
-interface DevpostMeta {
-  /**
-   * Total number of hackathons matching the API request.
-   */
-  total_count?: number;
+interface DevpostApiResponse {
+  hackathons?: DevpostHackathon[];
 
-  /**
-   * Number of records returned per API page.
-   */
-  per_page?: number;
+  meta?: {
+    total_count?: number;
+    per_page?: number;
+  };
 }
 
 /**
- * Represents the top-level Devpost API response.
- */
-interface DevpostHackathonsResponse {
-  hackathons?: unknown;
-  meta?: DevpostMeta;
-}
-
-/**
- * Runtime guard for a Devpost hackathon.
+ * Determines whether an unknown value looks like a Devpost
+ * hackathon object.
  *
- * The response comes from an external service, so TypeScript
- * types alone are not enough.
- *
- * We first receive the data as unknown and verify that it has
- * the basic structure we need before treating it as a
- * DevpostHackathon.
+ * We keep this guard intentionally defensive because external
+ * APIs are outside Route's control.
  */
 function isDevpostHackathon(value: unknown): value is DevpostHackathon {
   if (typeof value !== "object" || value === null) {
     return false;
   }
 
-  const candidate = value as Record<string, unknown>;
-
-  /**
-   * A Devpost record must have an ID.
-   */
-  if (typeof candidate.id !== "number" && typeof candidate.id !== "string") {
-    return false;
-  }
-
-  /**
-   * A title is required because Route cannot expose a useful
-   * opportunity without one.
-   */
-  if (typeof candidate.title !== "string") {
-    return false;
-  }
-
-  return true;
-}
-
-/**
- * Removes HTML markup from Devpost's prize_amount field.
- *
- * Devpost can return values such as:
- *
- * "$<span data-currency-value>740,000</span>"
- *
- * Route should not expose that HTML as part of its normalized
- * opportunity data.
- */
-function cleanPrizeAmount(value?: string): string | undefined {
-  if (!value) {
-    return undefined;
-  }
+  const hackathon = value as Record<string, unknown>;
 
   return (
-    value
-      /**
-       * Remove HTML tags.
-       */
-      .replace(/<[^>]*>/g, "")
-
-      /**
-       * Decode a few common HTML entities that can appear in
-       * text returned by web APIs.
-       */
-      .replace(/&nbsp;/g, " ")
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-
-      /**
-       * Remove unnecessary whitespace.
-       */
-      .replace(/\s+/g, " ")
-      .trim()
+    typeof hackathon.id === "number" &&
+    typeof hackathon.title === "string" &&
+    typeof hackathon.url === "string"
   );
 }
 
 /**
- * Normalizes one Devpost hackathon into Route's common
- * Opportunity structure.
+ * Removes HTML tags from values such as:
  *
- * The rest of Route should never need to understand Devpost's
- * raw response shape.
+ * "$<span data-currency-value>740,000</span>"
+ *
+ * and converts them into:
+ *
+ * "$740,000"
  */
-function normalizeDevpostHackathon(
-  hackathon: DevpostHackathon,
-): Opportunity | null {
-  /**
-   * These fields are essential for a useful Route opportunity.
-   */
-  if (!hackathon.title || !hackathon.url) {
-    return null;
+function cleanHtml(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
   }
 
+  return value
+    .replace(/<[^>]*>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Converts a raw Devpost hackathon into Route's normalized
+ * Opportunity model.
+ */
+function normalizeHackathon(hackathon: DevpostHackathon): Opportunity {
+  const themes =
+    hackathon.themes
+      ?.map((theme) => theme.name)
+      .filter(
+        (theme): theme is string =>
+          typeof theme === "string" && theme.length > 0,
+      ) ?? [];
+
   /**
-   * Devpost exposes the displayed location separately.
+   * Devpost exposes the prize amount as an HTML string.
+   * We clean it before storing it in the normalized model.
+   */
+  const prize = cleanHtml(hackathon.prize_amount);
+
+  /**
+   * Devpost's location field is generally "Online" for
+   * remote hackathons.
+   *
+   * We keep the explicit location as well as a normalized
+   * boolean because different parts of Route may need either.
    */
   const location = hackathon.displayed_location?.location;
 
-  /**
-   * Devpost commonly represents online hackathons with an
-   * "Online" location.
-   *
-   * This is intentionally simple for now. We can make remote
-   * detection more robust later if Devpost introduces more
-   * location formats.
-   */
-  const remote =
-    typeof location === "string" && location.toLowerCase().includes("online");
+  const remote = location?.toLowerCase() === "online";
 
   /**
-   * Convert the themes into simple strings.
-   */
-  const themes = Array.isArray(hackathon.themes)
-    ? hackathon.themes
-        .map((theme) => theme.name)
-        .filter((theme): theme is string => typeof theme === "string")
-    : [];
-
-  /**
-   * Devpost's listing response does not currently give us a
-   * complete long-form description.
+   * Route currently does not have a dedicated description
+   * field from Devpost's API.
    *
-   * Rather than inventing one, we create a short factual
-   * description from information that Devpost actually gives us.
+   * We therefore construct a useful normalized description
+   * from the information available to us.
    */
   const descriptionParts = [
     hackathon.title,
@@ -237,18 +163,8 @@ function normalizeDevpostHackathon(
     themes.length > 0 ? `themes: ${themes.join(", ")}` : undefined,
   ].filter(Boolean);
 
-  const description = descriptionParts.join(". ") + ".";
-
-  /**
-   * Use a stable provider-prefixed ID.
-   *
-   * Prefixing the ID prevents collisions if another provider
-   * happens to use the same numeric ID.
-   */
-  const id = `devpost:${String(hackathon.id)}`;
-
   return {
-    id,
+    id: `devpost:${hackathon.id}`,
 
     title: hackathon.title,
 
@@ -256,15 +172,15 @@ function normalizeDevpostHackathon(
 
     organization: hackathon.organization_name ?? "Unknown organization",
 
-    description,
+    description: descriptionParts.join(". ") + ".",
 
     url: hackathon.url,
 
     source: "devpost",
 
     /**
-     * This identifies the API endpoint from which the data
-     * originated.
+     * This is the provider endpoint used by Route to obtain
+     * the opportunity data.
      */
     sourceUrl: DEVPOST_API_URL,
 
@@ -272,37 +188,16 @@ function normalizeDevpostHackathon(
 
     remote,
 
-    /**
-     * Devpost currently gives us the submission period as a
-     * human-readable string.
-     *
-     * We keep it here until Route has a more structured
-     * deadline model.
-     */
     deadline: hackathon.submission_period_dates,
 
-    /**
-     * Clean Devpost's HTML prize representation before exposing
-     * it through Route.
-     */
-    prize: cleanPrizeAmount(hackathon.prize_amount),
+    prize,
 
-    /**
-     * Source-specific information stays inside metadata.
-     *
-     * This allows Route's common Opportunity interface to stay
-     * clean while preserving useful Devpost information for
-     * get_opportunity and future features.
-     */
     metadata: {
       themes,
 
       /**
-       * Devpost calls this "registrations_count".
-       *
-       * We deliberately preserve that meaning instead of calling
-       * it participants, because registrations are not necessarily
-       * the same thing as submissions or participants.
+       * This field represents registrations, not submissions
+       * or participants.
        */
       registrations: hackathon.registrations_count,
 
@@ -317,8 +212,6 @@ function normalizeDevpostHackathon(
       openState: hackathon.open_state,
 
       winnersAnnounced: hackathon.winners_announced,
-
-      featured: undefined,
 
       inviteOnly: hackathon.invite_only,
 
@@ -335,294 +228,239 @@ function normalizeDevpostHackathon(
 }
 
 /**
- * Searches the Devpost API.
+ * Determines whether a normalized opportunity matches
+ * the requested keyword.
  *
- * The provider is responsible for:
+ * We intentionally search several meaningful fields instead
+ * of only matching the title.
+ */
+function matchesKeyword(opportunity: Opportunity, keyword?: string): boolean {
+  if (!keyword) {
+    return true;
+  }
+
+  const normalizedKeyword = keyword.trim().toLowerCase();
+
+  if (!normalizedKeyword) {
+    return true;
+  }
+
+  const searchableText = [
+    opportunity.title,
+    opportunity.organization,
+    opportunity.description,
+    ...(Array.isArray(opportunity.metadata?.themes)
+      ? opportunity.metadata.themes
+      : []),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return searchableText.includes(normalizedKeyword);
+}
+
+/**
+ * Converts a continuation cursor into a Devpost page number.
  *
- * 1. Fetching Devpost pages.
- * 2. Filtering the raw results.
- * 3. Continuing to later pages when necessary.
- * 4. Normalizing matching records.
- * 5. Returning the requested number of matches.
+ * Example cursor:
  *
- * The caller does NOT need to understand Devpost pagination.
+ * "devpost:4"
+ *
+ * becomes:
+ *
+ * 4
+ *
+ * We keep the cursor format provider-specific.
+ */
+function parseCursor(cursor?: string): number {
+  if (!cursor) {
+    return 1;
+  }
+
+  const match = /^devpost:(\d+)$/.exec(cursor);
+
+  if (!match) {
+    /**
+     * An invalid cursor should not cause the provider
+     * to behave unpredictably.
+     *
+     * We simply restart from page 1.
+     */
+    return 1;
+  }
+
+  const page = Number(match[1]);
+
+  if (!Number.isInteger(page) || page < 1) {
+    return 1;
+  }
+
+  return page;
+}
+
+/**
+ * Devpost opportunity provider.
  */
 export class DevpostProvider implements OpportunityProvider {
-  /**
-   * Provider identifier used by Route.
-   */
   readonly name = "devpost";
 
-  /**
-   * Devpost currently provides hackathons.
-   */
   readonly supportedTypes = ["hackathon"] as const;
 
   /**
-   * Search Devpost for hackathons.
+   * Search Devpost for matching hackathons.
+   *
+   * Important:
+   * - `limit` means matching opportunities.
+   * - Devpost's page size is handled internally.
+   * - `cursor` tells us where a previous search stopped.
    */
-  async search(params: OpportunitySearchParams): Promise<Opportunity[]> {
+  async search(
+    params: OpportunitySearchParams,
+  ): Promise<OpportunityProviderResult> {
     /**
-     * Devpost only supports hackathons.
+     * A Devpost provider only handles hackathons.
      *
-     * If another opportunity type is requested, this provider
-     * should simply return no results.
+     * The Provider Manager normally guarantees this,
+     * but keeping this guard here makes the provider safer
+     * when used independently.
      */
-    if (params.type && params.type !== "hackathon") {
-      return [];
+    if (params.type && params.type !== "hackathon" && params.type !== "all") {
+      return {
+        opportunities: [],
+      };
     }
 
     /**
-     * Default to 10 results.
+     * Default Route-level provider target.
+     */
+    const limit =
+      params.limit && params.limit > 0 ? Math.floor(params.limit) : 10;
+
+    /**
+     * Determine where this search should begin.
      *
-     * The AI can explicitly request a different number.
-     */
-    const requestedLimit = params.limit ?? 10;
-
-    /**
-     * Protect the provider from invalid limits.
+     * Without a cursor:
+     *     page 1
      *
-     * A value below 1 cannot produce useful search results.
-     */
-    if (requestedLimit < 1) {
-      return [];
-    }
-
-    /**
-     * Normalize the keyword once so that every record can be
-     * compared against the same value.
-     */
-    const keyword = params.keyword?.trim().toLowerCase();
-
-    /**
-     * This array contains only opportunities that actually
-     * match the caller's filters.
-     */
-    const matches: Opportunity[] = [];
-
-    /**
-     * Keep track of the current Devpost API page.
+     * With:
+     *     devpost:4
      *
-     * This number never leaves this provider.
+     * we begin at page 4.
      */
-    let page = 1;
+    let currentPage = parseCursor(params.cursor);
 
-    /**
-     * Keep fetching pages until one of the following happens:
-     *
-     * - We have enough matching opportunities.
-     * - Devpost has no more pages.
-     * - The safety page limit is reached.
-     */
-    while (matches.length < requestedLimit && page <= MAX_PAGES_PER_SEARCH) {
+    const results: Opportunity[] = [];
+
+    let pagesFetched = 0;
+
+    let hasMorePages = true;
+
+    while (
+      results.length < limit &&
+      pagesFetched < MAX_PAGES_PER_SEARCH &&
+      hasMorePages
+    ) {
       /**
-       * Construct the Devpost API URL.
-       *
-       * URLSearchParams keeps query-string construction safe
-       * and readable.
+       * Build the Devpost API URL using the provider's
+       * own pagination mechanism.
        */
-      const url = new URL(DEVPOST_API_URL);
+      const url = `${DEVPOST_API_URL}?page=${currentPage}`;
 
-      url.searchParams.set("page", String(page));
+      const response = await fetch(url);
 
-      /**
-       * Request the current Devpost page.
-       */
-      const response = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-
-          /**
-           * Identify Route when making the request.
-           */
-          "User-Agent": "Route-MCP/0.1.0",
-        },
-      });
-
-      /**
-       * Never silently continue when Devpost returns an error.
-       */
       if (!response.ok) {
         throw new Error(
           `Devpost API request failed: ${response.status} ${response.statusText}`,
         );
       }
 
-      /**
-       * Treat external JSON as unknown until we inspect it.
-       */
-      const rawData: unknown = await response.json();
+      const data = (await response.json()) as DevpostApiResponse;
+
+      const rawHackathons = data.hackathons ?? [];
 
       /**
-       * Verify that the response has the expected top-level
-       * object structure.
+       * If Devpost returns an empty page, we have reached
+       * the end of the available data.
        */
-      if (typeof rawData !== "object" || rawData === null) {
-        throw new Error("Devpost API returned an unexpected response.");
-      }
-
-      const data = rawData as DevpostHackathonsResponse;
-
-      /**
-       * Devpost should provide an array of hackathons.
-       *
-       * If it doesn't, stop rather than trying to process
-       * malformed data.
-       */
-      if (!Array.isArray(data.hackathons)) {
-        throw new Error(
-          "Devpost API response does not contain a hackathons array.",
-        );
+      if (rawHackathons.length === 0) {
+        hasMorePages = false;
+        break;
       }
 
       /**
-       * Convert only valid Devpost records into our typed
-       * representation.
+       * Normalize only valid Devpost records.
        */
-      const hackathons = data.hackathons.filter(isDevpostHackathon);
+      const opportunities = rawHackathons
+        .filter(isDevpostHackathon)
+        .map(normalizeHackathon);
 
       /**
-       * Normalize the current page.
+       * Apply Route's search filters after normalization.
        */
-      for (const hackathon of hackathons) {
-        const opportunity = normalizeDevpostHackathon(hackathon);
+      for (const opportunity of opportunities) {
+        if (results.length >= limit) {
+          break;
+        }
 
-        /**
-         * Ignore malformed records that cannot be normalized.
-         */
-        if (!opportunity) {
+        if (!matchesKeyword(opportunity, params.keyword)) {
           continue;
         }
 
-        /**
-         * -------------------------------
-         * Keyword filtering
-         * -------------------------------
-         *
-         * Search across the fields that actually help describe
-         * what the hackathon is about.
-         */
-        if (keyword) {
-          const searchableText = [
-            opportunity.title,
-
-            opportunity.organization,
-
-            opportunity.description,
-
-            /**
-             * Themes are already included in metadata by the
-             * normalization step.
-             */
-            ...(Array.isArray(opportunity.metadata?.themes)
-              ? opportunity.metadata.themes
-              : []),
-          ]
-            .filter((value): value is string => typeof value === "string")
-            .join(" ")
-            .toLowerCase();
-
-          /**
-           * Skip this opportunity if the requested keyword does
-           * not appear in its searchable content.
-           */
-          if (!searchableText.includes(keyword)) {
-            continue;
-          }
-        }
-
-        /**
-         * -------------------------------
-         * Remote filtering
-         * -------------------------------
-         */
         if (params.remote === true && opportunity.remote !== true) {
           continue;
         }
 
-        /**
-         * This opportunity passed all filters, so add it to the
-         * result set.
-         */
-        matches.push(opportunity);
-
-        /**
-         * Stop processing the current page as soon as we have
-         * enough results.
-         *
-         * There is no reason to process or fetch additional
-         * records once the requested limit has been satisfied.
-         */
-        if (matches.length >= requestedLimit) {
-          break;
-        }
+        results.push(opportunity);
       }
 
       /**
-       * If we already have enough matches, the search is complete.
-       */
-      if (matches.length >= requestedLimit) {
-        break;
-      }
-
-      /**
-       * -------------------------------
-       * Pagination decision
-       * -------------------------------
+       * Devpost tells us how many records exist in total.
        *
-       * We now determine whether Devpost has another page.
-       *
-       * Example:
-       *
-       * total_count = 13913
-       * per_page    = 9
-       *
-       * means there are many more records available.
+       * We can use that together with the page size to
+       * determine whether another page exists.
        */
-      const totalCount =
-        typeof data.meta?.total_count === "number"
-          ? data.meta.total_count
-          : undefined;
+      const totalCount = data.meta?.total_count;
 
-      const perPage =
-        typeof data.meta?.per_page === "number"
-          ? data.meta.per_page
-          : DEFAULT_PAGE_SIZE;
+      const pageSize = data.meta?.per_page ?? DEFAULT_PAGE_SIZE;
 
-      /**
-       * If the current page contains fewer records than the
-       * expected page size, it is almost certainly the final page.
-       */
-      const isLastPageBySize = hackathons.length < perPage;
+      if (typeof totalCount === "number") {
+        const lastPage = Math.ceil(totalCount / pageSize);
 
-      /**
-       * If metadata tells us the total number of records, we can
-       * determine whether another page exists mathematically.
-       */
-      const processedRecords = page * perPage;
-
-      const isLastPageByCount =
-        typeof totalCount === "number" && processedRecords >= totalCount;
-
-      /**
-       * Stop when Devpost indicates there are no more pages.
-       */
-      if (isLastPageBySize || isLastPageByCount) {
-        break;
+        hasMorePages = currentPage < lastPage;
+      } else {
+        /**
+         * If Devpost does not provide pagination metadata,
+         * assume another page exists when the current page
+         * was full.
+         */
+        hasMorePages = rawHackathons.length >= pageSize;
       }
 
       /**
        * Move to the next Devpost page.
        */
-      page += 1;
+      currentPage += 1;
+
+      pagesFetched += 1;
     }
 
     /**
-     * Return only the number of results requested by the caller.
+     * If another page is available, expose a continuation
+     * cursor pointing to the next page.
      *
-     * The slicing is a final defensive measure in case multiple
-     * records were added before the limit check stopped processing.
+     * Example:
+     *
+     * currentPage = 4
+     *
+     * nextCursor = "devpost:4"
      */
-    return matches.slice(0, requestedLimit);
+    const nextCursor = hasMorePages ? `devpost:${currentPage}` : undefined;
+
+    return {
+      opportunities: results,
+
+      nextCursor,
+    };
   }
 }
