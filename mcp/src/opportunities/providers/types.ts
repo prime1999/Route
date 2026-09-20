@@ -1,129 +1,96 @@
-/**
- * Route Opportunity Provider Interface
- * =====================================
- *
- * Route will eventually retrieve opportunities from multiple
- * external sources.
- *
- * Examples:
- *
- *   - Remote OK
- *   - Devpost
- *   - Future job platforms
- *   - Future hackathon platforms
- *   - Future scholarship platforms
- *
- * Every external source has its own API or HTML structure.
- *
- * The provider interface creates a common contract between
- * those external sources and the rest of Route.
- *
- * The architecture becomes:
- *
- *   External Source
- *        ↓
- *   Provider
- *        ↓
- *   Opportunity[]
- *        ↓
- *   MCP Tool
- *
- * The MCP tools therefore do NOT need to know how a particular
- * website works.
- */
-
 import type { Opportunity, OpportunityType } from "../types.js";
 
 /**
- * Parameters that can be passed when searching an opportunity
- * provider.
+ * Parameters that can be used by any opportunity provider
+ * when searching for opportunities.
  *
- * These parameters intentionally describe what the user wants,
- * rather than how a specific provider performs its search.
+ * The important distinction here is that `limit` represents
+ * the number of MATCHING opportunities we want back.
  *
- * For example, Remote OK might use tags while Devpost might
- * use different filtering mechanisms.
+ * It does NOT represent how many records a provider should
+ * fetch from its API.
  *
- * The provider is responsible for translating these generic
- * parameters into whatever the external source understands.
+ * For example:
+ *
+ *   limit: 20
+ *
+ * means:
+ *
+ *   "Return up to 20 opportunities that match these filters."
+ *
+ * A provider may therefore need to fetch multiple API pages
+ * internally to find those 20 matches.
  */
 export interface OpportunitySearchParams {
   /**
-   * Optional keyword that can be used to narrow the search.
+   * Optional keyword describing what the user is looking for.
    *
-   * Examples:
-   *
-   *   "typescript"
-   *   "software engineer"
-   *   "AI"
+   * Providers decide which relevant fields to search.
+   * For Devpost, this can include the title, organization,
+   * description, and themes.
    */
   keyword?: string;
 
   /**
    * Optional opportunity type.
    *
-   * A provider can use this to determine whether it should
-   * return jobs, hackathons, or another supported category.
+   * This allows the provider layer to reject requests for
+   * opportunity types that the provider does not support.
    */
   type?: OpportunityType;
 
   /**
-   * Optional remote-only filter.
+   * Optional remote/online filter.
    *
-   * When true, the provider should attempt to return only
-   * opportunities that can be completed remotely.
+   * When true, the provider should return only opportunities
+   * that can be participated in remotely/online.
    */
   remote?: boolean;
+
+  /**
+   * Maximum number of MATCHING opportunities to return.
+   *
+   * This is intentionally different from provider pagination.
+   * Provider-specific page numbers should remain an internal
+   * implementation detail.
+   */
+  limit?: number;
 }
 
 /**
- * The common contract every Route opportunity provider must
+ * Common contract that every Route opportunity provider must
  * implement.
  *
- * This is an interface rather than a class because we only
- * want to define the behavior that providers must expose.
- *
- * Individual providers can then implement that behavior in
- * completely different ways.
+ * The rest of Route should interact with providers through this
+ * interface rather than knowing how Remote OK, Devpost, or any
+ * future provider works internally.
  */
 export interface OpportunityProvider {
   /**
-   * Unique name identifying the provider.
+   * Human-readable/internal identifier for the provider.
    *
    * Examples:
-   *
    *   "remoteok"
    *   "devpost"
-   *
-   * This value will eventually be stored on normalized
-   * opportunities as their `source`.
    */
   readonly name: string;
 
   /**
-   * The opportunity types this provider can return.
+   * Opportunity types supported by this provider.
    *
-   * Examples:
+   * Remote OK currently supports:
+   *   ["job"]
    *
-   *   Remote OK → ["job"]
-   *   Devpost   → ["hackathon"]
-   *
-   * This allows Route to determine which provider should
-   * participate in a particular search.
+   * Devpost currently supports:
+   *   ["hackathon"]
    */
   readonly supportedTypes: readonly OpportunityType[];
 
   /**
-   * Search the external source and return normalized
-   * Route opportunities.
+   * Search the provider and return normalized Route opportunities.
    *
-   * The provider is responsible for:
-   *
-   *   1. Requesting the external source.
-   *   2. Parsing its response.
-   *   3. Extracting relevant information.
-   *   4. Normalizing that information.
-   *   5. Returning Route Opportunity objects.
+   * Provider-specific details such as API pagination, response
+   * parsing, filtering, and normalization stay inside the provider.
    */
   search(params: OpportunitySearchParams): Promise<Opportunity[]>;
 }

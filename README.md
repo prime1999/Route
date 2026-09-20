@@ -316,7 +316,7 @@ npm run dev
 
 The local MCP endpoint is currently:
 
-http://localhost:3001/mcp
+http://localhost:3005/mcp
 
 The port may be changed through the project's environment configuration.
 

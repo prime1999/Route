@@ -45,7 +45,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
  *
  * In our case, it will communicate with:
  *
- *     http://localhost:3001/mcp
+ *     http://localhost:3005/mcp
  */
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
@@ -73,7 +73,7 @@ const client = new Client({
  * The MCP SDK handles the MCP protocol messages for us.
  */
 const transport = new StreamableHTTPClientTransport(
-  new URL("http://localhost:3001/mcp"),
+  new URL("http://localhost:3005/mcp"),
 );
 
 try {
