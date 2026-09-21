@@ -1,107 +1,85 @@
 import type { Opportunity, OpportunityType } from "../types.js";
 
 /**
- * Defines the scope of an opportunity search.
+ * Defines the type of search that Route supports.
  *
- * `OpportunityType` represents an actual opportunity domain:
- * - job
- * - hackathon
- *
- * `"all"` is different. It means:
- * "Search across every provider that can satisfy this request."
- *
- * We deliberately keep `"all"` out of OpportunityType because
- * "all" is a search scope, not an opportunity itself.
+ * "all" is a search scope, not an actual OpportunityType.
+ * It tells the provider manager to search across every
+ * provider that can participate in the request.
  */
 export type OpportunitySearchType = OpportunityType | "all";
 
 /**
- * Parameters accepted by an opportunity provider.
+ * Parameters understood by the provider layer.
  *
- * These are the search instructions that Route passes down
- * to individual providers.
+ * These parameters are intentionally generic so that every
+ * opportunity provider can implement the same interface.
  */
 export interface OpportunitySearchParams {
   /**
-   * Optional keyword supplied by the AI.
+   * Optional keyword supplied by the user/AI.
    *
-   * Example:
-   * "AI"
-   * "typescript"
-   * "fintech"
+   * Providers decide which fields they use for matching.
    */
   keyword?: string;
 
   /**
    * Restricts the search to a specific opportunity type,
-   * or allows searching across all supported types.
+   * or "all" providers when omitted/"all".
    */
   type?: OpportunitySearchType;
 
   /**
-   * If true, only remote opportunities should be returned.
+   * Optional remote-only filter.
    */
   remote?: boolean;
 
   /**
-   * Number of matching opportunities the provider should
-   * try to return.
-   *
-   * This is NOT the provider's page size.
-   *
-   * A provider may need to fetch several pages internally
-   * to satisfy this number.
+   * Maximum number of matching opportunities that
+   * the provider should attempt to return.
    */
   limit?: number;
 
   /**
-   * Optional continuation cursor.
+   * Provider-specific continuation cursor.
    *
-   * When Route asks for more results, this tells the provider
-   * where the previous search stopped.
+   * This is used when Route needs to continue a previous
+   * provider search.
    *
-   * The provider owns the meaning of this cursor.
+   * IMPORTANT:
+   * This value never needs to be exposed to the MCP client.
    */
   cursor?: string;
 }
 
 /**
- * Result returned by an individual opportunity provider.
- *
- * A provider returns:
- * - the opportunities it found
- * - optionally, a cursor that allows the next search to continue
- *
- * The cursor is opaque to the rest of the application.
+ * Result returned by an individual provider.
  */
 export interface OpportunityProviderResult {
   /**
-   * Normalized opportunities returned by the provider.
+   * Opportunities found by this provider.
    */
   opportunities: Opportunity[];
 
   /**
-   * Cursor for continuing the search.
+   * Provider-specific cursor for continuing the search.
    *
-   * `undefined` means there are no more results or the provider
-   * cannot continue the current search.
+   * If undefined, the provider has no continuation state
+   * available.
    */
   nextCursor?: string;
 }
 
 /**
- * Common interface that every opportunity provider must implement.
- *
- * This allows Route to treat Remote OK, Devpost, and future
- * providers uniformly.
+ * Contract every Route opportunity provider must implement.
  */
 export interface OpportunityProvider {
   /**
-   * Human-readable provider name.
+   * Stable internal provider name.
    *
    * Examples:
-   * "remoteok"
-   * "devpost"
+   * - "remoteok"
+   * - "devpost"
    */
   readonly name: string;
 
@@ -111,15 +89,7 @@ export interface OpportunityProvider {
   readonly supportedTypes: readonly OpportunityType[];
 
   /**
-   * Search the provider for opportunities matching the supplied
-   * parameters.
-   *
-   * The provider is responsible for:
-   * - communicating with the external source
-   * - handling source-specific pagination
-   * - filtering source results
-   * - normalizing results into Route's Opportunity model
-   * - creating its own continuation cursor
+   * Search this provider for opportunities.
    */
   search(params: OpportunitySearchParams): Promise<OpportunityProviderResult>;
 }

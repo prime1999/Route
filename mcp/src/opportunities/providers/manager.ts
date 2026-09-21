@@ -10,63 +10,65 @@ import { RemoteOkProvider } from "./remoteOk.js";
 import { DevpostProvider } from "./devpost.js";
 
 /**
+ * Provider-specific continuation state.
+ *
+ * Example:
+ *
+ * {
+ *   remoteok: undefined,
+ *   devpost: "devpost:2"
+ * }
+ *
+ * This structure is internal to Route.
+ * It should never be exposed directly through the MCP interface.
+ */
+export type ProviderCursors = Record<string, string | undefined>;
+
+/**
  * Result returned by the Provider Manager.
  *
- * The manager combines results from multiple providers.
+ * The manager deliberately does NOT enforce Route's final
+ * global result limit.
  *
- * We also preserve the continuation cursor from each provider
- * because the Search Service will eventually use these to build
- * Route's single opaque continuation cursor.
+ * Its job is provider coordination, not final search semantics.
  */
 export interface OpportunityProviderManagerResult {
   /**
-   * Combined opportunities from all selected providers.
+   * Opportunities returned by the selected providers.
    */
   opportunities: Opportunity[];
 
   /**
-   * Continuation cursors returned by the providers.
-   *
-   * Example:
-   *
-   * {
-   *   devpost: "devpost:4",
-   *   remoteok: "remoteok:2"
-   * }
-   *
-   * The Search Service will later turn this provider-specific
-   * state into one Route-level cursor.
+   * Continuation state returned by each provider.
    */
-  cursors: Record<string, string | undefined>;
+  cursors: ProviderCursors;
 }
 
 /**
- * Coordinates the opportunity providers available to Route.
+ * Coordinates Route's registered opportunity providers.
  *
- * The Provider Manager's job is provider selection and
- * coordination.
+ * Responsibilities:
+ * - register providers
+ * - decide which providers participate
+ * - call providers
+ * - preserve provider-specific continuation state
  *
- * It does NOT:
- * - understand Devpost pagination
- * - understand Remote OK pagination
- * - rank opportunities
- * - enforce the final global result limit
- *
- * Those responsibilities belong elsewhere.
+ * Responsibilities intentionally NOT handled here:
+ * - global result limiting
+ * - deduplication
+ * - opaque Route cursors
+ * - ranking
+ * - MCP tool handling
  */
 export class OpportunityProviderManager {
   private readonly providers: OpportunityProvider[];
 
-  /**
-   * Create the provider manager.
-   *
-   * Providers can be supplied manually, which makes this class
-   * easier to test later.
-   *
-   * If no providers are supplied, Route uses the currently
-   * supported providers.
-   */
   constructor(providers?: OpportunityProvider[]) {
+    /**
+     * Allow dependency injection for testing.
+     *
+     * In production, Route uses its default providers.
+     */
     this.providers = providers ?? [
       new RemoteOkProvider(),
       new DevpostProvider(),
@@ -74,42 +76,41 @@ export class OpportunityProviderManager {
   }
 
   /**
-   * Return all currently registered providers.
+   * Return the currently registered providers.
+   *
+   * A copy is returned so callers cannot mutate the
+   * manager's internal provider list.
    */
   getProviders(): OpportunityProvider[] {
     return [...this.providers];
   }
 
   /**
-   * Select providers based on the requested search type.
+   * Select providers based on the requested opportunity type.
    *
    * Examples:
    *
    * type = "job"
-   *     → Remote OK
+   * → Remote OK
    *
    * type = "hackathon"
-   *     → Devpost
+   * → Devpost
    *
    * type = "all"
-   *     → all registered providers
-   *
-   * type = undefined
-   *     → all registered providers
+   * → both
    */
   private selectProviders(type?: OpportunitySearchType): OpportunityProvider[] {
     /**
-     * No type or "all" means:
-     *
-     * "Search every provider currently registered."
+     * No type or "all" means every registered provider
+     * participates in the search.
      */
     if (!type || type === "all") {
       return [...this.providers];
     }
 
     /**
-     * Otherwise only select providers that explicitly
-     * advertise support for the requested opportunity type.
+     * Otherwise only providers supporting the requested
+     * opportunity type participate.
      */
     return this.providers.filter((provider) =>
       provider.supportedTypes.includes(type),
@@ -117,19 +118,24 @@ export class OpportunityProviderManager {
   }
 
   /**
-   * Search all providers selected for the request.
+   * Search the selected providers.
    *
-   * Providers are queried in parallel because there is no reason
-   * for Route to wait for one provider before asking another.
+   * providerCursors allows Route to continue each provider
+   * independently.
    */
   async search(
     params: OpportunitySearchParams,
+    providerCursors: ProviderCursors = {},
   ): Promise<OpportunityProviderManagerResult> {
+    /**
+     * Determine which providers should participate in this
+     * particular search.
+     */
     const selectedProviders = this.selectProviders(params.type);
 
     /**
-     * If no provider supports the requested type,
-     * return an empty result instead of throwing.
+     * If no provider supports the requested type, return
+     * an empty result rather than throwing an error.
      */
     if (selectedProviders.length === 0) {
       return {
@@ -139,11 +145,22 @@ export class OpportunityProviderManager {
     }
 
     /**
-     * Query every selected provider concurrently.
+     * Search all selected providers concurrently.
+     *
+     * Each provider receives only its own continuation cursor.
      */
     const providerResults = await Promise.all(
       selectedProviders.map(async (provider) => {
-        const result = await provider.search(params);
+        const result = await provider.search({
+          ...params,
+
+          /**
+           * Override the generic cursor with the
+           * cursor belonging specifically to this
+           * provider.
+           */
+          cursor: providerCursors[provider.name],
+        });
 
         return {
           provider,
@@ -153,31 +170,22 @@ export class OpportunityProviderManager {
     );
 
     /**
-     * Flatten all provider results into one list.
+     * Combine all provider results into one collection.
      *
-     * We deliberately do NOT apply the final global limit here.
-     *
-     * For example:
-     *
-     * limit = 10
-     *
-     * Remote OK → 10
-     * Devpost   → 10
-     *
-     * The Search Service will later decide which 10 should
-     * actually be returned to the AI.
+     * The manager intentionally does not apply the final
+     * Route-level limit here.
      */
     const opportunities = providerResults.flatMap(
       ({ result }) => result.opportunities,
     );
 
     /**
-     * Preserve each provider's continuation cursor.
+     * Preserve each provider's continuation state.
      *
-     * We use the provider's name as the key so the Search Service
-     * can later build a combined Route cursor.
+     * The Search Service will later turn this internal
+     * structure into one opaque Route cursor.
      */
-    const cursors: Record<string, string | undefined> = {};
+    const cursors: ProviderCursors = {};
 
     for (const { provider, result } of providerResults) {
       cursors[provider.name] = result.nextCursor;

@@ -1,68 +1,77 @@
 import { RemoteOkProvider } from "./remoteOk.js";
 
 /**
- * Manual test for the Remote OK provider.
+ * Simple manual test for the Remote OK provider.
  *
- * This test calls the real Remote OK API and verifies that:
- *
- * 1. Jobs can be retrieved.
- * 2. Keyword filtering works.
- * 3. The provider returns the new OpportunityProviderResult
- *    structure.
+ * This verifies that Route's locally implemented
+ * position-based pagination actually produces different
+ * result sets across consecutive requests.
  */
 async function main() {
   const provider = new RemoteOkProvider();
 
-  console.log("=== TEST 1: Default search ===");
+  /**
+   * First request.
+   *
+   * No cursor means we start at position zero.
+   */
+  console.log("=== TEST 1: First page ===");
 
-  const defaultResult = await provider.search({
-    limit: 10,
+  const firstPage = await provider.search({
+    keyword: "AI",
+    type: "job",
+    limit: 5,
   });
 
-  console.log(`Found ${defaultResult.opportunities.length} jobs`);
+  console.log(`Found ${firstPage.opportunities.length} results`);
 
-  for (const opportunity of defaultResult.opportunities) {
-    console.log(`- ${opportunity.title} | ${opportunity.organization}`);
-  }
-
-  console.log("\nNext cursor:", defaultResult.nextCursor ?? "none");
-
-  console.log("\n=== TEST 2: TypeScript jobs ===");
-
-  const typescriptResult = await provider.search({
-    keyword: "typescript",
-    limit: 10,
+  firstPage.opportunities.forEach((opportunity, index) => {
+    console.log(`${index + 1}. ${opportunity.title}`);
   });
 
-  console.log(`Found ${typescriptResult.opportunities.length} TypeScript jobs`);
+  console.log("Next cursor:", firstPage.nextCursor);
 
-  for (const opportunity of typescriptResult.opportunities) {
-    console.log(`- ${opportunity.title} | ${opportunity.organization}`);
+  /**
+   * Stop if there are no additional results.
+   */
+  if (!firstPage.nextCursor) {
+    console.log("\nNo second page is available.");
+
+    return;
   }
 
-  console.log("\nNext cursor:", typescriptResult.nextCursor ?? "none");
+  /**
+   * Second request.
+   *
+   * We pass the cursor returned by the first request.
+   *
+   * The provider should now start from the position
+   * immediately after the first batch.
+   */
+  console.log("\n=== TEST 2: Second page ===");
 
-  console.log("\n=== TEST 3: Remote filter ===");
-
-  const remoteResult = await provider.search({
-    keyword: "developer",
-    remote: true,
-    limit: 10,
+  const secondPage = await provider.search({
+    keyword: "AI",
+    type: "job",
+    limit: 5,
+    cursor: firstPage.nextCursor,
   });
 
-  console.log(`Found ${remoteResult.opportunities.length} remote jobs`);
+  console.log(`Found ${secondPage.opportunities.length} results`);
 
-  for (const opportunity of remoteResult.opportunities) {
-    console.log(
-      `- ${opportunity.title} | ${opportunity.organization} | remote=${opportunity.remote}`,
-    );
-  }
+  secondPage.opportunities.forEach((opportunity, index) => {
+    console.log(`${index + 1}. ${opportunity.title}`);
+  });
 
-  console.log("\nNext cursor:", remoteResult.nextCursor ?? "none");
+  console.log("Next cursor:", secondPage.nextCursor);
 }
 
 main().catch((error) => {
-  console.error("Remote OK provider test failed:", error);
+  /**
+   * Surface unexpected failures clearly during
+   * manual development/testing.
+   */
+  console.error("Remote OK test failed:", error);
 
   process.exit(1);
 });
