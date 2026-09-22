@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 
 /**
  * Registers the health_check tool.
@@ -15,7 +16,7 @@ export function registerHealthCheckTool(server: McpServer): void {
       description:
         "Checks whether the Route MCP server is running and able to respond to tool calls.",
 
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
 
     async () => {
