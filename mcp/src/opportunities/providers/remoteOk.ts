@@ -62,6 +62,60 @@ export class RemoteOkProvider implements OpportunityProvider {
   readonly supportedTypes = ["job"] as const;
 
   /**
+   * Determines whether a URL belongs to Remote OK and represents
+   * a Remote OK job page.
+   *
+   * This method only performs URL ownership validation.
+   * It deliberately does not make a network request.
+   *
+   * The Provider Manager uses this method to decide which provider
+   * should receive a getByUrl() request.
+   */
+  canHandleUrl(url: string): boolean {
+    try {
+      const parsedUrl = new URL(url);
+
+      /**
+       * Route only accepts HTTPS source URLs for direct retrieval.
+       *
+       * This also prevents accidentally treating an arbitrary HTTP
+       * resource as a trusted Remote OK opportunity source.
+       */
+      if (parsedUrl.protocol !== "https:") {
+        return false;
+      }
+
+      /**
+       * Remote OK's canonical hostname is remoteok.com.
+       *
+       * We intentionally require an exact hostname match rather than
+       * using endsWith("remoteok.com"), because that could incorrectly
+       * accept domains such as:
+       *
+       *     evilremoteok.com
+       */
+      if (parsedUrl.hostname !== "remoteok.com") {
+        return false;
+      }
+
+      /**
+       * Remote OK job pages use the /remote-jobs/ path.
+       *
+       * Requiring this path prevents unrelated Remote OK pages from
+       * being treated as opportunity URLs.
+       */
+      return parsedUrl.pathname.startsWith("/remote-jobs/");
+    } catch {
+      /**
+       * Invalid URLs are simply not owned by this provider.
+       *
+       * URL parsing errors should not escape from an ownership check.
+       */
+      return false;
+    }
+  }
+
+  /**
    * Search Remote OK for jobs matching the supplied criteria.
    *
    * The important part of this implementation is that

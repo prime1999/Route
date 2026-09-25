@@ -429,7 +429,7 @@ getByUrl(url: string): Promise<Opportunity | null>;
 
 Each provider is responsible for resolving and normalizing an opportunity from its own supported URL structure.
 
-The Provider Manager will later determine which registered provider owns a URL and delegate retrieval to that provider.
+The Provider Manager determines which registered provider owns a URL through `canHandleUrl()` and delegates retrieval to that provider through `getByUrl()`.
 
 ## Why
 
@@ -469,13 +469,11 @@ Normalized Opportunity
 
 Remote OK and Devpost both implement provider-level URL retrieval.
 
+The Provider Manager also implements URL ownership resolution and delegation. Manager-level tests cover Remote OK retrieval, Devpost retrieval, and an unsupported URL returning `null`.
+
 The following pieces are still pending:
 
 ```text
-Provider Manager URL ownership resolution
-
-                ↓
-
 Application/service retrieval layer
 
                 ↓

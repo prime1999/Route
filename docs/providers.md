@@ -290,9 +290,9 @@ DevpostProvider
 → *.devpost.com/...
 ```
 
-The Provider Manager will later use these provider-level ownership checks when resolving a URL to a provider.
+The Provider Manager uses these provider-level ownership checks when resolving a URL to a provider. It asks registered providers in order and delegates retrieval to the first provider that claims ownership.
 
-At the current provider layer, each provider has already been tested independently.
+The provider and manager retrieval paths have been tested with Remote OK, Devpost, and an unsupported URL.
 
 ---
 
@@ -499,6 +499,14 @@ Its responsibilities are:
 - pass each provider its own cursor
 - combine provider results
 - return provider cursors to the Search Service
+
+For direct retrieval, the Provider Manager also:
+
+- asks providers whether they own the supplied URL through `canHandleUrl()`
+- delegates retrieval to the matching provider through `getByUrl()`
+- returns `null` when no registered provider claims the URL
+
+The Manager does not fetch URLs, parse source-specific responses, or normalize provider data. Those responsibilities remain with the selected provider.
 
 Conceptually:
 

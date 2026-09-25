@@ -556,9 +556,11 @@ If you want to add a new provider, the goal is that you should be able to implem
 
 ---
 
-## Hackathon
+## Contributing
 
-Route is being developed for the **Amazon Developer Hackathon 2026**.
+Route is open source and contributions are welcome.
+
+See `CONTRIBUTING.md` for development guidelines, architecture conventions, testing practices, and documentation workflow.
 
 The primary track is:
 

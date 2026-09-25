@@ -1,60 +1,89 @@
 import type { Opportunity, OpportunityType } from "../types.js";
 
 /**
- * The types of opportunities that a provider can search for.
+ * Represents the opportunity types that a provider search can target.
  *
- * "all" is intentionally not included here because "all" is a
- * Route-level search concept. Individual providers only need to
- * understand the opportunity types they actually support.
+ * "all" is a Route-level search concept. Individual providers still
+ * declare the specific opportunity types they support through
+ * `supportedTypes`.
  */
 export type OpportunitySearchType = OpportunityType | "all";
 
 /**
- * Parameters accepted by the provider search operation.
+ * Parameters accepted by an opportunity provider during a search.
  *
- * The Provider Manager passes these parameters down to individual
- * providers after deciding which providers should participate.
+ * Providers receive these parameters from the Provider Manager, but
+ * each provider is responsible for interpreting them according to
+ * the semantics of its own data source.
  */
 export interface OpportunitySearchParams {
+  /**
+   * Optional keyword used to filter opportunities.
+   *
+   * The keyword is intentionally free-form. Route does not restrict
+   * users to a predefined list of skills or interests.
+   */
   keyword?: string;
+
+  /**
+   * Optional opportunity type to search for.
+   *
+   * "all" is handled by Route's provider/search infrastructure rather
+   * than representing a native provider type.
+   */
   type?: OpportunitySearchType;
+
+  /**
+   * Optional remote-work/location filter.
+   *
+   * The provider decides how this maps to its source's own data model.
+   */
   remote?: boolean;
+
+  /**
+   * Maximum number of opportunities the provider should return
+   * for this search request.
+   */
   limit?: number;
+
+  /**
+   * Opaque provider-specific continuation cursor.
+   *
+   * Route passes this back to the same provider on subsequent pages.
+   * The provider owns the meaning and format of this cursor.
+   */
   cursor?: string;
 }
 
 /**
- * Standardized result returned by a provider search operation.
- *
- * Providers own their own pagination mechanism and expose only
- * an opaque continuation cursor to the Provider Manager.
+ * The result returned by an individual opportunity provider.
  */
 export interface OpportunityProviderResult {
+  /**
+   * Normalized opportunities returned by the provider.
+   */
   opportunities: Opportunity[];
 
   /**
-   * Provider-specific continuation state.
+   * Provider-specific cursor for continuing the search.
    *
-   * Route does not interpret this value. It simply stores it inside
-   * the Route-level opaque cursor and passes it back to the provider
-   * on the next request.
+   * When omitted, the provider has no more results to return.
    */
   nextCursor?: string;
 }
 
 /**
- * Contract that every Route opportunity provider must implement.
+ * Contract every Route opportunity provider must implement.
  *
  * Providers are responsible for translating their external source
- * into Route's common Opportunity model.
+ * into Route's normalized Opportunity model.
  */
 export interface OpportunityProvider {
   /**
-   * Provider identifier used internally by Route.
+   * Unique provider name used internally by Route.
    *
-   * Examples:
-   * - "remoteok"
-   * - "devpost"
+   * This name is also used when storing provider-specific pagination
+   * state inside Route's opaque search cursor.
    */
   readonly name: string;
 
@@ -64,22 +93,32 @@ export interface OpportunityProvider {
   readonly supportedTypes: readonly OpportunityType[];
 
   /**
-   * Search the provider for opportunities.
+   * Determines whether this provider owns the supplied URL.
+   *
+   * This method should only answer the ownership question.
+   * It should NOT perform network requests or retrieve the resource.
+   *
+   * Keeping URL ownership separate from retrieval allows the
+   * Provider Manager to resolve the correct provider before calling
+   * getByUrl().
+   */
+  canHandleUrl(url: string): boolean;
+
+  /**
+   * Searches the provider's external source and normalizes the
+   * returned results into Route opportunities.
    */
   search(params: OpportunitySearchParams): Promise<OpportunityProviderResult>;
 
   /**
-   * Retrieve one specific opportunity using its canonical external URL.
+   * Retrieves a single opportunity directly from its source URL.
    *
-   * The URL comes directly from the normalized Opportunity returned
-   * by Route's search operation.
+   * The provider is responsible for validating the URL according
+   * to its own source rules, retrieving the resource, and
+   * normalizing it into Route's Opportunity model.
    *
-   * Providers should retrieve the specific resource represented by
-   * the URL rather than downloading an entire provider dataset and
-   * scanning it for a matching internal ID.
-   *
-   * Returning null means the provider could not resolve the URL
-   * into a current Opportunity.
+   * Returning null means the provider could not resolve the
+   * requested opportunity.
    */
   getByUrl(url: string): Promise<Opportunity | null>;
 }

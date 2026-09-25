@@ -308,6 +308,55 @@ export class DevpostProvider implements OpportunityProvider {
   readonly supportedTypes = ["hackathon"] as const;
 
   /**
+   * Determines whether a URL belongs to Devpost.
+   *
+   * Devpost hackathons can be hosted directly on devpost.com or on
+   * Devpost-owned subdomains such as:
+   *
+   *     https://revenuecat-shipaton-2026.devpost.com/
+   *
+   * This method only checks URL ownership. It does not make a
+   * network request or attempt to retrieve the hackathon.
+   */
+  canHandleUrl(url: string): boolean {
+    try {
+      const parsedUrl = new URL(url);
+
+      /**
+       * Route requires HTTPS for direct opportunity retrieval.
+       */
+      if (parsedUrl.protocol !== "https:") {
+        return false;
+      }
+
+      /**
+       * Accept either:
+       *
+       * 1. The main Devpost domain:
+       *      devpost.com
+       *
+       * 2. A genuine Devpost subdomain:
+       *      *.devpost.com
+       *
+       * The dot before "devpost.com" is important. It prevents
+       * lookalike domains such as:
+       *
+       *      evildevpost.com
+       *      devpost.com.evil.com
+       */
+      return (
+        parsedUrl.hostname === "devpost.com" ||
+        parsedUrl.hostname.endsWith(".devpost.com")
+      );
+    } catch {
+      /**
+       * Invalid URLs are not owned by this provider.
+       */
+      return false;
+    }
+  }
+
+  /**
    * Search Devpost for matching hackathons.
    *
    * Important:
