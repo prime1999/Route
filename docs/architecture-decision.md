@@ -41,17 +41,25 @@ Route is responsible for providing structured opportunity infrastructure.
 
 ```text
                 AI AGENT / APPLICATION
+
                 ──────────────────────
+
                 Reasoning
                 Personalization
                 Generation
                 Automation
                 User interaction
+
                         │
+
                         │ MCP
+
                         ▼
+
                        ROUTE
+
                 ──────────────────────
+
                 Opportunity discovery
                 Retrieval
                 Normalization
@@ -144,14 +152,23 @@ Conceptually:
 
 ```text
                  Route
+
                    │
-            Provider Manager
+
+             Provider Manager
+
               /          \
+
              ▼            ▼
+
         Remote OK      Devpost
+
              │            │
+
              ▼            ▼
+
           Provider-specific
+
           retrieval logic
 ```
 
@@ -195,6 +212,7 @@ The current model supports:
 
 ```text
 job
+
 hackathon
 ```
 
@@ -243,9 +261,13 @@ With the current two types, this can return:
 
 ```text
 5 jobs
+
 +
+
 5 hackathons
+
 =
+
 up to 10 opportunities
 ```
 
@@ -263,10 +285,15 @@ As Route adds more opportunity types, the same conceptual model can extend:
 
 ```text
 all
+
 ├── jobs → limit
+
 ├── hackathons → limit
+
 ├── scholarships → limit
+
 ├── grants → limit
+
 └── ...
 ```
 
@@ -288,12 +315,19 @@ Conceptually:
 
 ```text
 MCP client
+
     │
+
     │ opaque cursor
+
     ▼
+
 Route
+
     │
+
     ├── Remote OK cursor
+
     └── Devpost cursor
 ```
 
@@ -342,7 +376,9 @@ Remote OK uses a position-based cursor:
 
 ```text
 remoteok:5
+
 remoteok:10
+
 remoteok:15
 ```
 
@@ -350,7 +386,9 @@ Devpost uses a page-based cursor:
 
 ```text
 devpost:2
+
 devpost:3
+
 devpost:4
 ```
 
@@ -364,7 +402,7 @@ Route combines provider cursors into its opaque Route cursor.
 
 ## Decision
 
-The MCP-facing `get_opportunity` operation will accept the opportunity's canonical URL:
+The future MCP-facing `get_opportunity` operation will accept the opportunity's canonical URL:
 
 ```json
 {
@@ -381,6 +419,18 @@ It will not require the agent to provide:
 }
 ```
 
+The canonical URL is already exposed as part of the normalized `Opportunity` model.
+
+At the provider layer, direct retrieval is implemented through:
+
+```ts
+getByUrl(url: string): Promise<Opportunity | null>;
+```
+
+Each provider is responsible for resolving and normalizing an opportunity from its own supported URL structure.
+
+The Provider Manager will later determine which registered provider owns a URL and delegate retrieval to that provider.
+
 ## Why
 
 Every normalized opportunity returned by `search_opportunities` already contains a canonical `url`.
@@ -389,15 +439,51 @@ Using that URL allows Route to retrieve the exact opportunity resource directly.
 
 The alternative of receiving an ID and then scanning a large provider dataset to locate that opportunity is less direct and unnecessarily couples retrieval to provider search behavior.
 
-## Consequence
+## Current Implementation State
 
-The provider interface will support:
+The provider-level portion of this decision has been implemented and tested.
 
-```ts
-getByUrl(url: string): Promise<Opportunity | null>;
+Currently:
+
+```text
+Opportunity URL
+
+      │
+
+      ▼
+
+Provider
+
+      │
+
+      ▼
+
+getByUrl()
+
+      │
+
+      ▼
+
+Normalized Opportunity
 ```
 
-The Provider Manager will determine which registered provider owns the URL and delegate retrieval to that provider.
+Remote OK and Devpost both implement provider-level URL retrieval.
+
+The following pieces are still pending:
+
+```text
+Provider Manager URL ownership resolution
+
+                ↓
+
+Application/service retrieval layer
+
+                ↓
+
+get_opportunity MCP tool
+```
+
+Therefore, the architectural decision is accepted, while the complete MCP-facing retrieval capability is still under implementation.
 
 ---
 
@@ -419,6 +505,7 @@ Examples:
 
 ```text
 remoteok:1137411
+
 devpost:12345
 ```
 
@@ -439,6 +526,7 @@ It is used for:
 - retrieving the exact opportunity
 - linking users to the original opportunity
 - provider URL resolution
+- future action workflows
 
 ## Why
 
@@ -488,15 +576,23 @@ AWS Strands Agents and Amazon Bedrock may be used by Route's agent/application l
 Conceptually:
 
 ```text
-                 AI AGENT
-                    │
-              Strands / Bedrock
-                    │
-                    │ MCP
-                    ▼
-              Route MCP Server
-                    │
-             Opportunity Providers
+                AI AGENT
+
+                   │
+
+             Strands / Bedrock
+
+                   │
+
+                   │ MCP
+
+                   ▼
+
+             Route MCP Server
+
+                   │
+
+            Opportunity Providers
 ```
 
 ## Why
@@ -540,7 +636,7 @@ The provider and MCP architecture should be designed to support additional types
 
 ## Consequence
 
-The current domain model, provider manager, and search service should support extension without requiring unnecessary abstractions for unsupported categories.
+The current domain model, Provider Manager, and Search Service should support extension without requiring unnecessary abstractions for unsupported categories.
 
 ---
 
@@ -556,13 +652,21 @@ The current priority is:
 
 ```text
 MCP
-  ↓
+
+ ↓
+
 Search
-  ↓
+
+ ↓
+
 Retrieve
-  ↓
+
+ ↓
+
 Save design
-  ↓
+
+ ↓
+
 Persistence
 ```
 
@@ -599,13 +703,21 @@ Instead:
 
 ```text
 Build
+
   ↓
+
 Test
+
   ↓
+
 Observe real responses/errors
+
   ↓
+
 Decide contract
+
   ↓
+
 Document
 ```
 
@@ -631,15 +743,25 @@ Route development follows:
 
 ```text
 Build
+
   ↓
+
 Test
+
   ↓
+
 Decide
+
   ↓
+
 Document
+
   ↓
+
 Commit
+
   ↓
+
 Next feature
 ```
 

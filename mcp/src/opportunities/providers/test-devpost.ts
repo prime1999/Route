@@ -1,11 +1,14 @@
 import { DevpostProvider } from "./devpost.js";
 
 /**
- * Simple manual test for the Devpost provider.
+ * Manual Devpost provider test.
  *
- * This file is intentionally separate from the actual provider
- * implementation so we can verify the provider against the real
- * Devpost API without involving the MCP server yet.
+ * Verifies:
+ * 1. search()
+ * 2. pagination
+ * 3. keyword filtering
+ * 4. getByUrl()
+ * 5. invalid URL handling
  */
 async function main() {
   const provider = new DevpostProvider();
@@ -41,10 +44,6 @@ async function main() {
 
   console.log("\n=== TEST 3: Continuation ===");
 
-  /**
-   * If the previous search produced a cursor,
-   * use it to continue from the next Devpost page.
-   */
   if (aiResult.nextCursor) {
     const continuationResult = await provider.search({
       keyword: "AI",
@@ -64,10 +63,39 @@ async function main() {
   } else {
     console.log("No continuation cursor was returned.");
   }
+
+  console.log("\n=== TEST 4: getByUrl() ===");
+
+  const firstHackathon = defaultResult.opportunities[0];
+  console.log("First hackathon:", firstHackathon);
+
+  if (!firstHackathon) {
+    console.log("No hackathons returned from search.");
+  } else {
+    console.log("Testing URL:");
+    console.log(firstHackathon.url);
+
+    const retrievedHackathon = await provider.getByUrl(firstHackathon.url);
+
+    console.log("Retrieved hackathon:", retrievedHackathon);
+  }
+
+  console.log("\n=== TEST 5: Invalid URL ===");
+
+  const invalidUrlResult = await provider.getByUrl("https://google.com");
+
+  console.log("Result:", invalidUrlResult);
+
+  console.log("\n=== TEST 6: Non-existent Devpost URL ===");
+
+  const missingHackathonResult = await provider.getByUrl(
+    "https://devpost.com/software/route-does-not-exist-999999999",
+  );
+
+  console.log("Result:", missingHackathonResult);
 }
 
 main().catch((error) => {
   console.error("Devpost provider test failed:", error);
-
   process.exit(1);
 });

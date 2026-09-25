@@ -1,121 +1,109 @@
 # Route TODO
 
-This file tracks planned work, deferred decisions, investigations,
+This file tracks planned work, deferred decisions,
 and improvements for Route.
-
-Items should be removed or moved to the appropriate documentation
-once they are completed and verified.
-
----
 
 ## Current Focus
 
 - [ ] Implement `get_opportunity`
-  - [ ] Extend provider interface with `getByUrl()`
-  - [ ] Implement Remote OK URL retrieval
-  - [ ] Implement Devpost URL retrieval
-  - [ ] Add provider URL resolution
-  - [ ] Add application/service layer for retrieval
-  - [ ] Add MCP tool
-  - [ ] Register the tool
-  - [ ] Add MCP integration tests
-  - [ ] Test both providers with real opportunities
-
----
+  - [x] Extend provider interface with `getByUrl()`
+  - [x] Remote OK URL retrieval
+  - [x] Devpost URL retrieval
+  - [ ] Provider URL resolution
+  - [ ] application/service layer
+  - [ ] MCP tool
+  - [ ] register tool
+  - [ ] MCP integration tests
+  - [x] Test both providers independently
 
 ## MCP
 
+- [ ] Build Provider Manager URL resolution
+- [ ] Build opportunity application/service layer
+- [ ] Build `get_opportunity` MCP tool
+- [ ] Register `get_opportunity`
 - [ ] Live-test `get_opportunity`
 - [ ] Observe real success responses
 - [ ] Observe real validation errors
 - [ ] Observe provider/network errors
-- [ ] Decide the public response/error contract
+- [ ] Decide public response/error contract
 - [ ] Document finalized MCP responses and errors
-
----
 
 ## Opportunity Infrastructure
 
-- [ ] Implement `save_opportunity`
-- [ ] Decide saved-opportunity persistence model
-- [ ] Add DynamoDB persistence
-- [ ] Implement `list_saved_opportunities`
-- [ ] Implement `prepare_opportunity`
-- [ ] Test the complete opportunity lifecycle
-
----
+- [ ] `save_opportunity`
+- [ ] persistence model
+- [ ] DynamoDB
+- [ ] `list_saved_opportunities`
+- [ ] `prepare_opportunity`
+- [ ] test complete lifecycle
 
 ## Providers
 
-- [ ] Test direct Remote OK opportunity retrieval
-- [ ] Test direct Devpost opportunity retrieval
-- [ ] Define provider URL ownership rules
-- [ ] Document provider requirements
-- [ ] Document how to add a new provider
-- [ ] Add additional providers when MVP is stable
-
----
+- [x] Provider interface `getByUrl()`
+- [x] Direct Remote OK retrieval
+- [x] Direct Devpost retrieval
+- [x] Remote OK URL validation
+- [x] Devpost URL validation
+- [x] Devpost subdomain handling
+- [x] Provider-specific remote semantics
+- [ ] Provider URL ownership resolution in Provider Manager
+- [ ] Provider requirements
+- [ ] How to add a provider
+- [ ] More providers after MVP is stable
 
 ## Agent Integration
 
-- [ ] Integrate AWS Strands Agents SDK
-- [ ] Connect Strands to Route through MCP
-- [ ] Integrate Amazon Bedrock
-- [ ] Test agent-driven opportunity discovery
-- [ ] Test agent-driven opportunity understanding
-- [ ] Test agent-driven preparation flow
-
----
+- [ ] Strands
+- [ ] Bedrock
+- [ ] Agent-driven discovery
+- [ ] Understanding
+- [ ] Preparation
 
 ## Alexa+
 
-- [ ] Complete MCP server testing independently
-- [ ] Make Route remotely accessible over HTTPS
-- [ ] Review Alexa+ MCP integration requirements
-- [ ] Implement required authentication
-- [ ] Connect Route to Alexa+
-- [ ] Test Alexa+ tool discovery
-- [ ] Test Alexa+ opportunity search
-- [ ] Build simulated/demo experience
-- [ ] Record final demo
+- [ ] Complete MCP testing
+- [ ] HTTPS
+- [ ] Review Alexa+ requirements
+- [ ] Auth
+- [ ] Connect Alexa+
+- [ ] Tool discovery/search tests
+- [ ] Simulated/demo experience
+- [ ] Final demo
 - [ ] Verify hackathon requirements
-
----
 
 ## Documentation
 
-- [x] Create `docs/README.md`
-- [x] Create `docs/architecture.md`
-- [ ] Create `docs/mcp.md`
-- [ ] Create `docs/opportunities.md`
-- [ ] Create `docs/providers.md`
-- [x] Create health check tool documentation
-- [ ] Create search opportunities tool documentation
-- [ ] Create get opportunity documentation
-- [ ] Create save opportunity documentation
-- [ ] Create prepare opportunity documentation
-- [ ] Create architecture decision records
-- [ ] Document finalized response/error contracts
-- [ ] Review root README against current implementation
-
----
+- [x] `docs/README.md`
+- [x] `docs/architecture.md`
+- [x] `docs/mcp.md`
+- [x] `docs/opportunities.md`
+- [x] Provider documentation
+- [x] Health check docs
+- [x] Search opportunities docs
+- [x] Document provider-level `getByUrl()`
+- [x] Document Devpost subdomain handling
+- [x] Document provider-specific remote semantics
+- [x] Document URL-based opportunity retrieval
+- [ ] `get-opportunity.md`
+- [ ] Save docs
+- [ ] Prepare docs
+- [ ] Architecture decision records
+- [ ] Response/error contracts
+- [ ] Root README review
 
 ## Codebase Cleanup
 
-- [ ] Remove unused dependencies
-- [ ] Review temporary debug logs
-- [ ] Review duplicate domain type/schema definitions
-- [ ] Review provider error handling
-- [ ] Review test organization
-- [ ] Review naming consistency
-- [ ] Run full build and test suite
-- [ ] Update repository structure documentation
-
----
+- [ ] Unused dependencies
+- [ ] Debug logs
+- [ ] Duplicate domain types/schema
+- [ ] Provider error handling
+- [ ] Test organization
+- [ ] Naming consistency
+- [ ] Full build/test
+- [ ] Repository structure docs
 
 ## Future Opportunity Types
-
-Not part of the current MVP.
 
 - [ ] Scholarships
 - [ ] Fellowships
@@ -123,20 +111,15 @@ Not part of the current MVP.
 - [ ] Internships
 - [ ] Accelerators
 - [ ] Events
-- [ ] Freelance opportunities
-- [ ] Other opportunity sources
-
----
+- [ ] Freelance
 
 ## Future Capabilities
 
-Not part of the current MVP.
-
-- [ ] Opportunity recommendations/personalization
+- [ ] Recommendations/personalization
 - [ ] Application assistance
 - [ ] CV/resume preparation
-- [ ] Outreach/cold-DM workflows
-- [ ] Opportunity tracking
+- [ ] Outreach/cold-DM
+- [ ] Tracking
 - [ ] Notifications
 - [ ] Browser automation
-- [ ] Additional MCP clients
+- [ ] More MCP clients

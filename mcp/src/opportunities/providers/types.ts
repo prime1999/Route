@@ -1,81 +1,56 @@
 import type { Opportunity, OpportunityType } from "../types.js";
 
 /**
- * Defines the type of search that Route supports.
+ * The types of opportunities that a provider can search for.
  *
- * "all" is a search scope, not an actual OpportunityType.
- * It tells the provider manager to search across every
- * provider that can participate in the request.
+ * "all" is intentionally not included here because "all" is a
+ * Route-level search concept. Individual providers only need to
+ * understand the opportunity types they actually support.
  */
 export type OpportunitySearchType = OpportunityType | "all";
 
 /**
- * Parameters understood by the provider layer.
+ * Parameters accepted by the provider search operation.
  *
- * These parameters are intentionally generic so that every
- * opportunity provider can implement the same interface.
+ * The Provider Manager passes these parameters down to individual
+ * providers after deciding which providers should participate.
  */
 export interface OpportunitySearchParams {
-  /**
-   * Optional keyword supplied by the user/AI.
-   *
-   * Providers decide which fields they use for matching.
-   */
   keyword?: string;
-
-  /**
-   * Restricts the search to a specific opportunity type,
-   * or "all" providers when omitted/"all".
-   */
   type?: OpportunitySearchType;
-
-  /**
-   * Optional remote-only filter.
-   */
   remote?: boolean;
-
-  /**
-   * Maximum number of matching opportunities that
-   * the provider should attempt to return.
-   */
   limit?: number;
-
-  /**
-   * Provider-specific continuation cursor.
-   *
-   * This is used when Route needs to continue a previous
-   * provider search.
-   *
-   * IMPORTANT:
-   * This value never needs to be exposed to the MCP client.
-   */
   cursor?: string;
 }
 
 /**
- * Result returned by an individual provider.
+ * Standardized result returned by a provider search operation.
+ *
+ * Providers own their own pagination mechanism and expose only
+ * an opaque continuation cursor to the Provider Manager.
  */
 export interface OpportunityProviderResult {
-  /**
-   * Opportunities found by this provider.
-   */
   opportunities: Opportunity[];
 
   /**
-   * Provider-specific cursor for continuing the search.
+   * Provider-specific continuation state.
    *
-   * If undefined, the provider has no continuation state
-   * available.
+   * Route does not interpret this value. It simply stores it inside
+   * the Route-level opaque cursor and passes it back to the provider
+   * on the next request.
    */
   nextCursor?: string;
 }
 
 /**
- * Contract every Route opportunity provider must implement.
+ * Contract that every Route opportunity provider must implement.
+ *
+ * Providers are responsible for translating their external source
+ * into Route's common Opportunity model.
  */
 export interface OpportunityProvider {
   /**
-   * Stable internal provider name.
+   * Provider identifier used internally by Route.
    *
    * Examples:
    * - "remoteok"
@@ -89,7 +64,22 @@ export interface OpportunityProvider {
   readonly supportedTypes: readonly OpportunityType[];
 
   /**
-   * Search this provider for opportunities.
+   * Search the provider for opportunities.
    */
   search(params: OpportunitySearchParams): Promise<OpportunityProviderResult>;
+
+  /**
+   * Retrieve one specific opportunity using its canonical external URL.
+   *
+   * The URL comes directly from the normalized Opportunity returned
+   * by Route's search operation.
+   *
+   * Providers should retrieve the specific resource represented by
+   * the URL rather than downloading an entire provider dataset and
+   * scanning it for a matching internal ID.
+   *
+   * Returning null means the provider could not resolve the URL
+   * into a current Opportunity.
+   */
+  getByUrl(url: string): Promise<Opportunity | null>;
 }

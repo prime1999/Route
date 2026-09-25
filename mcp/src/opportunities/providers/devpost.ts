@@ -463,4 +463,248 @@ export class DevpostProvider implements OpportunityProvider {
       nextCursor,
     };
   }
+
+  /**
+   * Retrieve one specific hackathon from Devpost using its URL.
+   *
+   * Route's get_opportunity operation is URL-based. When an AI agent
+   * receives a Devpost URL from a previous search result, it should
+   * not need to know Devpost's internal numeric ID.
+   *
+   * The provider therefore accepts the URL and resolves the
+   * corresponding hackathon through Devpost's API.
+   *
+   * We intentionally do NOT scrape the normal Devpost HTML page here.
+   *
+   * During provider investigation, Devpost's normal HTML page was
+   * protected by AWS WAF, while the public API returned structured
+   * hackathon data. The API is therefore the source used by this
+   * provider for both search and direct retrieval.
+   *
+   * @param url
+   * The Devpost hackathon URL supplied by Route.
+   *
+   * @returns
+   * A normalized Route Opportunity when the hackathon can be found,
+   * or null when the URL is invalid, does not belong to Devpost,
+   * or the requested hackathon cannot be found.
+   */
+  async getByUrl(url: string): Promise<Opportunity | null> {
+    /**
+     * -------------------------------------------------------------
+     * STEP 1: Parse and validate the URL
+     * -------------------------------------------------------------
+     *
+     * URL parsing happens before any network request.
+     *
+     * This allows us to safely inspect the hostname and prevents
+     * malformed strings from being passed directly to fetch().
+     */
+    let parsedUrl: URL;
+
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return null;
+    }
+
+    /**
+     * -------------------------------------------------------------
+     * STEP 2: Verify that this is a Devpost URL
+     * -------------------------------------------------------------
+     *
+     * Provider ownership is important because Route may eventually
+     * support many opportunity providers.
+     *
+     * DevpostProvider should only handle URLs belonging to
+     * devpost.com.
+     *
+     * We also require the URL to have a meaningful pathname because
+     * the pathname is what we use to identify the requested
+     * hackathon.
+     */
+    if (
+      parsedUrl.protocol !== "https:" ||
+      (parsedUrl.hostname !== "devpost.com" &&
+        !parsedUrl.hostname.endsWith(".devpost.com"))
+    ) {
+      return null;
+    }
+
+    /**
+     * -------------------------------------------------------------
+     * STEP 3: Extract the requested hackathon URL
+     * -------------------------------------------------------------
+     *
+     * Devpost's API returns the canonical URL for each hackathon.
+     *
+     * We normalize the incoming URL by removing a trailing slash
+     * so that these two forms can be compared consistently:
+     *
+     * https://devpost.com/hackathons/example
+     * https://devpost.com/hackathons/example/
+     */
+    const requestedUrl = parsedUrl.toString().replace(/\/$/, "");
+
+    /**
+     * -------------------------------------------------------------
+     * STEP 4: Search through Devpost API pages
+     * -------------------------------------------------------------
+     *
+     * Unlike Remote OK, Devpost provides real pagination through
+     * its API.
+     *
+     * We therefore use the same native pagination mechanism that
+     * the search() method already uses.
+     *
+     * We do not know the API page containing the requested
+     * hackathon from the URL alone, so we progressively inspect
+     * Devpost pages until:
+     *
+     * 1. the requested URL is found,
+     * 2. Devpost tells us there are no more pages, or
+     * 3. MAX_PAGES_PER_SEARCH is reached.
+     *
+     * The safety limit prevents a single getByUrl() call from
+     * requesting an unbounded number of pages.
+     */
+    let currentPage = 1;
+    let hasMorePages = true;
+    let pagesFetched = 0;
+
+    while (hasMorePages && pagesFetched < MAX_PAGES_PER_SEARCH) {
+      /**
+       * Construct the Devpost API URL using the provider's
+       * native pagination format.
+       */
+      const apiUrl = `${DEVPOST_API_URL}?page=${currentPage}`;
+
+      /**
+       * Request the current page from Devpost.
+       */
+      const response = await fetch(apiUrl);
+
+      /**
+       * Do not attempt to parse an unsuccessful HTTP response.
+       *
+       * An API failure should be surfaced to the caller in the
+       * same way as search(), rather than being mistaken for
+       * "hackathon not found".
+       */
+      if (!response.ok) {
+        throw new Error(
+          `Devpost API request failed: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      /**
+       * Parse the structured Devpost API response.
+       */
+      const data = (await response.json()) as DevpostApiResponse;
+
+      /**
+       * Devpost places hackathons inside the hackathons array.
+       *
+       * If the API returns no hackathons, there is nothing more
+       * to search.
+       */
+      const rawHackathons = data.hackathons ?? [];
+
+      if (rawHackathons.length === 0) {
+        hasMorePages = false;
+        break;
+      }
+
+      /**
+       * -----------------------------------------------------------
+       * STEP 5: Find the requested hackathon
+       * -----------------------------------------------------------
+       *
+       * We first validate the raw records using the same defensive
+       * type guard used by search().
+       *
+       * This keeps malformed external API records from entering
+       * Route's normalized domain model.
+       */
+      const hackathon = rawHackathons
+        .filter(isDevpostHackathon)
+        .find((candidate) => {
+          /**
+           * Devpost's API gives us the canonical URL of each
+           * hackathon.
+           *
+           * Normalize the API URL in the same way as the
+           * requested URL so that a trailing slash does not
+           * cause a false mismatch.
+           */
+          const candidateUrl = candidate.url.trim().replace(/\/$/, "");
+
+          return candidateUrl === requestedUrl;
+        });
+
+      /**
+       * If we found the requested hackathon, normalize it using
+       * the exact same normalization function used by search().
+       *
+       * This is important because Route should produce the same
+       * Opportunity shape regardless of whether an opportunity
+       * came from search() or getByUrl().
+       */
+      if (hackathon) {
+        return normalizeHackathon(hackathon);
+      }
+
+      /**
+       * -----------------------------------------------------------
+       * STEP 6: Determine whether another API page exists
+       * -----------------------------------------------------------
+       *
+       * Devpost normally provides:
+       *
+       * meta.total_count
+       * meta.per_page
+       *
+       * These allow us to calculate the last available page.
+       */
+      const totalCount = data.meta?.total_count;
+
+      const pageSize = data.meta?.per_page ?? DEFAULT_PAGE_SIZE;
+
+      if (typeof totalCount === "number") {
+        const lastPage = Math.ceil(totalCount / pageSize);
+
+        hasMorePages = currentPage < lastPage;
+      } else {
+        /**
+         * If pagination metadata is unavailable,
+         * fall back to the same conservative behavior
+         * used by search().
+         *
+         * A page that is full may indicate that another
+         * page exists.
+         */
+        hasMorePages = rawHackathons.length >= pageSize;
+      }
+
+      /**
+       * Move to the next Devpost page.
+       */
+      currentPage += 1;
+
+      /**
+       * Track the number of pages requested so the safety
+       * limit can be enforced.
+       */
+      pagesFetched += 1;
+    }
+
+    /**
+     * The requested hackathon was not found within the pages
+     * we were willing to inspect.
+     *
+     * Returning null allows the service layer to distinguish
+     * "not found" from a successful retrieval.
+     */
+    return null;
+  }
 }

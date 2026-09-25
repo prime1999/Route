@@ -79,16 +79,21 @@ Providers implement the common `OpportunityProvider` interface.
 
 The current interface is:
 
-```ts id="9j1c9q"
+```ts
 export interface OpportunityProvider {
   readonly name: string;
+
   readonly supportedTypes: readonly OpportunityType[];
 
+  canHandleUrl(url: string): boolean;
+
   search(params: OpportunitySearchParams): Promise<OpportunityProviderResult>;
+
+  getByUrl(url: string): Promise<Opportunity | null>;
 }
 ```
 
-The provider interface currently defines the common information Route needs to search a source.
+The interface defines the common operations Route needs from an opportunity source.
 
 ### `name`
 
@@ -96,7 +101,7 @@ Identifies the provider internally.
 
 Current examples:
 
-```text id="zv5f87"
+```text
 remoteok
 devpost
 ```
@@ -107,7 +112,7 @@ Defines the opportunity types the provider can return.
 
 For example:
 
-```text id="x6tq4b"
+```text
 Remote OK
 → job
 
@@ -117,11 +122,56 @@ Devpost
 
 This allows the Provider Manager to avoid sending unsupported opportunity types to a provider.
 
+### `canHandleUrl()`
+
+Determines whether the provider owns a particular URL.
+
+URL ownership is provider-specific because external platforms can use different URL structures.
+
+For example:
+
+```text
+Remote OK
+→ https://remoteok.com/remote-jobs/...
+
+Devpost
+→ https://devpost.com/...
+→ https://example.devpost.com/...
+```
+
+The method performs local URL validation and does not need to make a network request.
+
+Keeping URL ownership inside the provider prevents the Provider Manager from becoming tightly coupled to every external platform's URL rules.
+
 ### `search()`
 
 Performs provider-specific discovery and returns normalized opportunities.
 
 The provider is responsible for translating its external data into Route's opportunity model.
+
+### `getByUrl()`
+
+Retrieves one specific opportunity using its canonical URL.
+
+The provider returns:
+
+- a normalized `Opportunity` when the opportunity is found
+- `null` when the opportunity cannot be found or the URL does not represent a resource handled by that provider
+
+The retrieval mechanism is provider-specific.
+
+For example:
+
+````text
+Remote OK
+→ fetch individual job page
+→ extract JobPosting JSON-LD
+→ normalize
+
+Devpost
+→ search Devpost API pages
+→ match canonical hackathon URL
+→ normalize
 
 ---
 
@@ -134,7 +184,7 @@ export interface OpportunityProviderResult {
   opportunities: Opportunity[];
   nextCursor?: string;
 }
-```
+````
 
 The provider therefore returns two things:
 
@@ -177,7 +227,261 @@ Those responsibilities belong to other layers.
 
 ---
 
-# 6. Provider Manager
+# 6. URL-Based Opportunity Retrieval
+
+Providers support direct opportunity retrieval through:
+
+```ts
+getByUrl(
+  url: string,
+): Promise<Opportunity | null>
+```
+
+Route uses the opportunity URL as the direct retrieval reference because search results already contain the canonical URL.
+
+The AI agent therefore does not need to understand provider-specific internal IDs.
+
+The general flow is:
+
+```text
+Opportunity URL
+      │
+      ▼
+Provider URL ownership
+      │
+      ▼
+Provider getByUrl()
+      │
+      ▼
+External source
+      │
+      ▼
+Normalized Opportunity
+```
+
+The provider's internal identifier is still preserved in the normalized `Opportunity.id`.
+
+For example:
+
+```text
+URL:
+https://remoteok.com/remote-jobs/...
+
+Internal ID:
+remoteok:1137410
+```
+
+This separates the public retrieval reference from Route's internal identity.
+
+## Provider URL Ownership
+
+Each provider determines whether it owns a URL.
+
+This is intentionally provider-specific.
+
+For example:
+
+```text
+RemoteOkProvider
+→ remoteok.com/remote-jobs/...
+
+DevpostProvider
+→ devpost.com/...
+→ *.devpost.com/...
+```
+
+The Provider Manager will later use these provider-level ownership checks when resolving a URL to a provider.
+
+At the current provider layer, each provider has already been tested independently.
+
+---
+
+# 7. Remote OK Direct Retrieval
+
+Remote OK supports direct retrieval of individual jobs through `getByUrl()`.
+
+The provider first validates that the URL:
+
+- uses HTTPS
+- belongs to `remoteok.com`
+- uses the `/remote-jobs/` path
+
+The provider then fetches the individual job page.
+
+Remote OK exposes job information through `JobPosting` JSON-LD on the page.
+
+The provider extracts that structured data and normalizes it into Route's `Opportunity` model.
+
+The resulting opportunity can contain:
+
+- title
+- organization
+- description
+- publication date
+- employment type
+- validity date
+- salary information
+- tags
+- remote status
+- Route's internal opportunity ID
+
+For example:
+
+```text
+remoteok:1137410
+```
+
+A valid Remote OK job URL returns a normalized `Opportunity`.
+
+An unrelated URL is rejected.
+
+A missing job returns `null`.
+
+The provider was tested independently against a real Remote OK job URL.
+
+---
+
+# 8. Devpost Direct Retrieval
+
+Devpost supports direct retrieval of hackathons through `getByUrl()`.
+
+The provider intentionally uses the Devpost API rather than scraping the normal Devpost HTML page.
+
+During provider investigation, normal Devpost HTML pages were protected by AWS WAF, while the public hackathon API provided structured data.
+
+The provider therefore:
+
+```text
+Devpost URL
+     │
+     ▼
+Validate URL
+     │
+     ▼
+Request Devpost API pages
+     │
+     ▼
+Compare canonical URLs
+     │
+     ▼
+Find matching hackathon
+     │
+     ▼
+Normalize
+     │
+     ▼
+Opportunity
+```
+
+The provider uses Devpost's native pagination while searching for the requested URL.
+
+A safety limit is applied to the number of pages inspected by a single `getByUrl()` request.
+
+If the matching hackathon is found, the same `normalizeHackathon()` logic used by search is applied.
+
+This ensures that an opportunity retrieved through `getByUrl()` has the same normalized structure as an opportunity returned from search.
+
+---
+
+# 9. Devpost URL Structure
+
+Devpost uses more than one URL structure for hackathons.
+
+Hackathons can appear directly under:
+
+```text
+https://devpost.com/...
+```
+
+and can also use Devpost-owned subdomains.
+
+For example, during testing Route encountered:
+
+```text
+https://revenuecat-shipaton-2026.devpost.com/
+```
+
+Therefore the Devpost provider accepts:
+
+```text
+devpost.com
+*.devpost.com
+```
+
+while requiring HTTPS.
+
+The implementation deliberately checks for a dot-boundary:
+
+```ts
+parsedUrl.hostname === "devpost.com" ||
+  parsedUrl.hostname.endsWith(".devpost.com");
+```
+
+rather than:
+
+```ts
+parsedUrl.hostname.endsWith("devpost.com");
+```
+
+The latter could incorrectly accept an unrelated hostname such as:
+
+```text
+evildevpost.com
+```
+
+This URL behavior was discovered and verified through live provider testing.
+
+---
+
+# 10. Provider-Specific Remote Semantics
+
+The `remote` field exists in Route's normalized `Opportunity` model, but providers may determine its value differently.
+
+The provider layer is responsible for translating source-specific information into Route's common representation.
+
+### Remote OK
+
+Remote OK is a remote-job source.
+
+Route therefore currently normalizes Remote OK jobs as:
+
+```ts
+remote: true;
+```
+
+### Devpost
+
+Devpost does not expose hackathon remote status using the same job-oriented representation.
+
+Route currently interprets an explicit Devpost location of:
+
+```text
+Online
+```
+
+as:
+
+```ts
+remote: true;
+```
+
+The rest of Route should not need to know how the provider reached this conclusion.
+
+The abstraction is:
+
+```text
+Provider-specific source data
+          │
+          ▼
+Provider-specific interpretation
+          │
+          ▼
+Opportunity.remote
+```
+
+This allows future providers to determine remote status according to their own source data without changing the core opportunity model.
+
+# 11. Provider Manager
 
 The Provider Manager coordinates registered providers.
 
@@ -211,7 +515,7 @@ Provider Manager
 
 ---
 
-# 7. Provider Selection
+# 12. Provider Selection
 
 When a search specifies a particular type, the Provider Manager selects providers that support that type.
 
@@ -251,7 +555,7 @@ This keeps provider selection centralized rather than requiring individual tools
 
 ---
 
-# 8. Provider Independence
+# 13. Provider Independence
 
 Each provider is independently responsible for its external source.
 
@@ -273,7 +577,7 @@ This is particularly important because external APIs can change independently.
 
 ---
 
-# 9. Remote OK Provider
+# 14. Remote OK Provider
 
 The Remote OK provider is located at:
 
@@ -297,7 +601,7 @@ The provider uses native `fetch` rather than requiring a dedicated SDK.
 
 ---
 
-# 10. Remote OK Data Flow
+# 15. Remote OK Data Flow
 
 The Remote OK provider follows this general flow:
 
@@ -327,7 +631,7 @@ The provider only returns jobs.
 
 ---
 
-# 11. Remote OK Filtering
+# 16. Remote OK Filtering
 
 Keyword searches are performed against relevant Remote OK fields.
 
@@ -348,7 +652,7 @@ to match relevant jobs without requiring Route to define a fixed list of support
 
 ---
 
-# 12. Remote Filtering
+# 17. Remote Filtering
 
 Remote OK opportunities can also be filtered using the `remote` parameter.
 
@@ -364,7 +668,7 @@ Provider-specific filtering remains inside the provider because external sources
 
 ---
 
-# 13. Remote OK Normalization
+# 18. Remote OK Normalization
 
 Remote OK data is transformed into Route's common `Opportunity` structure.
 
@@ -396,7 +700,7 @@ This allows Route to preserve useful information without making every provider-s
 
 ---
 
-# 14. Remote OK Pagination
+# 19. Remote OK Pagination
 
 Remote OK's public feed does not provide the type of reliable native pagination Route requires for its filtered search behavior.
 
@@ -430,7 +734,7 @@ This keeps the cursor compact and provider-specific.
 
 ---
 
-# 15. Devpost Provider
+# 20. Devpost Provider
 
 The Devpost provider is located at:
 
@@ -454,7 +758,7 @@ This endpoint was identified by inspecting the network requests used by Devpost'
 
 ---
 
-# 16. Devpost Data Flow
+# 21. Devpost Data Flow
 
 The Devpost provider follows:
 
@@ -481,7 +785,7 @@ The provider returns hackathons only.
 
 ---
 
-# 17. Devpost Pagination
+# 22. Devpost Pagination
 
 Devpost provides page-based pagination.
 
@@ -508,7 +812,7 @@ A provisional maximum page limit is used as a safety mechanism so a single searc
 
 ---
 
-# 18. Devpost Normalization
+# 23. Devpost Normalization
 
 Devpost records are normalized into Route opportunities.
 
@@ -546,7 +850,7 @@ startSubmissionUrl
 
 ---
 
-# 19. Devpost Opportunity Description
+# 24. Devpost Opportunity Description
 
 Devpost does not always expose a single normalized description field in the search response that maps directly to Route's model.
 
@@ -562,7 +866,7 @@ The rest of Route receives only the normalized `description`.
 
 ---
 
-# 20. Provider Cursors
+# 25. Provider Cursors
 
 Provider cursors are intentionally provider-specific.
 
@@ -584,7 +888,7 @@ The final Route cursor contains the provider continuation state required for the
 
 ---
 
-# 21. Provider Cursor Ownership
+# 26. Provider Cursor Ownership
 
 The provider owns the meaning of its cursor.
 
@@ -606,7 +910,7 @@ This separation is important because different external sources may use complete
 
 ---
 
-# 22. Search Distribution vs Provider Behavior
+# 27. Search Distribution vs Provider Behavior
 
 The Provider Manager combines provider results, but it does not decide the final user-facing distribution semantics.
 
@@ -646,7 +950,7 @@ This keeps provider behavior independent from Route's public search contract.
 
 ---
 
-# 23. Adding a New Provider
+# 28. Adding a New Provider
 
 A new provider should implement the existing provider abstraction rather than modifying the MCP tools directly.
 
@@ -682,7 +986,7 @@ The MCP search tool should not need provider-specific logic added to it.
 
 ---
 
-# 24. Provider Implementation Checklist
+# 29. Provider Implementation Checklist
 
 A provider should answer the following questions before being considered complete.
 
@@ -733,7 +1037,7 @@ A provider should answer the following questions before being considered complet
 
 ---
 
-# 25. Provider Testing
+# 30. Provider Testing
 
 Provider implementations are tested independently before being relied upon by higher layers.
 
@@ -763,7 +1067,7 @@ Provider tests are especially useful because external APIs can fail independentl
 
 ---
 
-# 26. External Provider Failures
+# 31. External Provider Failures
 
 Providers depend on external systems.
 
@@ -784,7 +1088,7 @@ Until then, Route should avoid documenting an invented error-response format.
 
 ---
 
-# 27. Current Providers
+# 32. Current Providers
 
 The current provider registry contains:
 
@@ -804,7 +1108,7 @@ Additional providers can be registered without changing the overall provider arc
 
 ---
 
-# 28. Provider Architecture Summary
+# 33. Provider Architecture Summary
 
 The provider system can be summarized as:
 
@@ -841,7 +1145,7 @@ This keeps Route extensible as additional opportunity sources are introduced.
 
 ---
 
-# 29. Future Provider Work
+# 34. Future Provider Work
 
 Future provider work may include:
 
@@ -860,7 +1164,7 @@ The current priority is to make the existing provider architecture reliable befo
 
 ---
 
-# 30. Related Documentation
+# 35. Related Documentation
 
 For the broader opportunity architecture, see:
 

@@ -13,7 +13,7 @@ Additional opportunity types are planned for the future.
 
 ---
 
-## 1. What Is an Opportunity?
+# 1. What Is an Opportunity?
 
 Route treats opportunities as normalized domain objects rather than provider-specific records.
 
@@ -23,18 +23,31 @@ Route converts that provider-specific data into a common `Opportunity` model.
 
 ```text
 External Provider
+
        │
+
        │ provider-specific data
+
        ▼
+
 Provider Implementation
+
        │
+
        │ normalization
+
        ▼
+
 Route Opportunity
+
        │
+
        ├── MCP
+
        ├── Search Service
+
        ├── Persistence
+
        └── Future agent capabilities
 ```
 
@@ -48,6 +61,7 @@ Route currently supports:
 
 ```text
 job
+
 hackathon
 ```
 
@@ -57,11 +71,17 @@ Future types may include:
 
 ```text
 scholarship
+
 fellowship
+
 grant
+
 internship
+
 accelerator
+
 event
+
 freelance
 ```
 
@@ -113,6 +133,7 @@ Examples:
 
 ```text
 remoteok:1137411
+
 devpost:123456
 ```
 
@@ -137,6 +158,7 @@ Examples:
 
 ```text
 Senior Software Engineer
+
 OpenCV AI Competition 2026
 ```
 
@@ -150,6 +172,7 @@ Current values:
 
 ```text
 job
+
 hackathon
 ```
 
@@ -165,7 +188,9 @@ For example:
 
 ```text
 A company
+
 A hackathon organizer
+
 An institution
 ```
 
@@ -189,12 +214,10 @@ The provider is responsible for producing a useful normalized description.
 
 The canonical external URL for the specific opportunity.
 
-This is an important part of the Route model.
-
-For example:
+Examples:
 
 ```text
-https://remoteok.com/...
+https://remoteok.com/remote-jobs/remote-frontend-engineer-bjak-1137410
 ```
 
 or:
@@ -205,11 +228,15 @@ https://opencv26.devpost.com/
 
 The URL points to the actual opportunity resource.
 
-It can therefore be used by future retrieval functionality such as:
+It is also the external identifier Route uses for direct opportunity retrieval.
 
-```text
-get_opportunity
+The current provider abstraction exposes:
+
+```ts
+getByUrl(url: string): Promise<Opportunity | null>;
 ```
+
+This allows a provider to retrieve and normalize a specific opportunity using its canonical external URL.
 
 The URL is different from the internal Route `id`.
 
@@ -223,6 +250,7 @@ Current examples:
 
 ```text
 remoteok
+
 devpost
 ```
 
@@ -248,7 +276,9 @@ Examples may include:
 
 ```text
 London, UK
+
 New York, USA
+
 Online
 ```
 
@@ -268,7 +298,14 @@ For example:
 remote: true
 ```
 
-A provider is responsible for determining this value from its available source data.
+A provider is responsible for determining this value according to the semantics of its source.
+
+For example:
+
+- Remote OK is a remote-only job source, so normalized Remote OK jobs are represented as `remote: true`.
+- Devpost currently interprets a location of `Online` as `remote: true`.
+
+This logic remains provider-specific because different sources may represent remote availability differently.
 
 ---
 
@@ -314,11 +351,17 @@ Examples include:
 
 ```text
 themes
+
 registrations
+
 cash prizes
+
 salary information
+
 application URLs
+
 published timestamps
+
 submission periods
 ```
 
@@ -344,24 +387,41 @@ For example:
 
 ```text
 Remote OK
+
 ─────────
+
 title
+
 company
+
 description
+
 tags
+
 salary_min
+
 salary_max
+
 epoch
+
 ...
 
 Devpost
+
 ───────
+
 title
+
 organization_name
+
 displayed_location
+
 prize_amount
+
 themes
+
 submission_period_dates
+
 ...
 ```
 
@@ -369,10 +429,14 @@ Route normalizes these into:
 
 ```text
                 Route Opportunity
+
                        │
+
         ┌──────────────┼──────────────┐
+
         ▼              ▼              ▼
-     Remote OK      Devpost       Future Provider
+
+    Remote OK       Devpost      Future Provider
 ```
 
 The provider implementation owns this transformation.
@@ -397,28 +461,51 @@ The general flow is:
 
 ```text
 Search Request
+
       │
+
       ▼
+
 Opportunity Search Service
+
       │
+
       ▼
+
 Provider Manager
+
       │
+
       ├── Remote OK
+
       │
+
       └── Devpost
+
       │
+
       ▼
+
 Normalized Opportunities
+
       │
+
       ▼
+
 Search Service
+
       │
+
       ├── Deduplicate
+
       ├── Apply result semantics
+
       └── Create Route cursor
+
       │
+
       ▼
+
 Search Result
 ```
 
@@ -446,11 +533,13 @@ Possible values:
 
 ```text
 job
+
 hackathon
+
 all
 ```
 
-If omitted, the search can use the currently supported providers according to the provider manager's selection behavior.
+If omitted, the search can use the currently supported providers according to the Provider Manager's selection behavior.
 
 ---
 
@@ -464,9 +553,13 @@ Examples:
 
 ```text
 AI
+
 backend
+
 Rust
+
 machine learning
+
 developer
 ```
 
@@ -510,7 +603,7 @@ The default is:
 5
 ```
 
-The value is normalized to a positive integer before being used by the search service.
+The value is normalized to a positive integer before being used by the Search Service.
 
 ---
 
@@ -534,6 +627,7 @@ For a specific type:
 
 ```text
 type = job
+
 limit = 5
 ```
 
@@ -547,6 +641,7 @@ Likewise:
 
 ```text
 type = hackathon
+
 limit = 5
 ```
 
@@ -560,6 +655,7 @@ For:
 
 ```text
 type = all
+
 limit = 5
 ```
 
@@ -569,6 +665,7 @@ With the current two types, this means:
 
 ```text
 jobs       → up to 5
+
 hackathons → up to 5
 ```
 
@@ -590,6 +687,7 @@ For example:
 
 ```text
 type = hackathon
+
 limit = 5
 ```
 
@@ -613,15 +711,25 @@ The general model is:
 
 ```text
 First request
+
      │
+
      ▼
+
 Results + nextCursor
+
      │
+
      ▼
+
 Second request
+
      │
+
      │ cursor
+
      ▼
+
 Next results + nextCursor
 ```
 
@@ -643,8 +751,11 @@ Conceptually:
 
 ```text
 devpost:2
+
 devpost:3
+
 devpost:4
+
 ...
 ```
 
@@ -658,8 +769,11 @@ Conceptually:
 
 ```text
 remoteok:5
+
 remoteok:10
+
 remoteok:15
+
 ...
 ```
 
@@ -679,9 +793,13 @@ Conceptually:
 
 ```text
 Route Cursor
+
 │
+
 ├── Remote OK cursor
+
 │
+
 └── Devpost cursor
 ```
 
@@ -697,6 +815,7 @@ may require Route to continue both:
 
 ```text
 Remote OK
+
 Devpost
 ```
 
@@ -732,17 +851,29 @@ Conceptually:
 
 ```text
 Provider results
+
       │
+
       ▼
+
 Normalize
+
       │
+
       ▼
+
 Deduplicate by Route ID
+
       │
+
       ▼
+
 Apply result semantics
+
       │
+
       ▼
+
 Return results
 ```
 
@@ -762,6 +893,7 @@ They serve different purposes.
 
 ```text
 remoteok:1137411
+
 devpost:123456
 ```
 
@@ -789,7 +921,7 @@ Used for:
 The distinction is important.
 
 ```text
-id  ≠  url
+id ≠ url
 ```
 
 The ID belongs to Route's internal domain model.
@@ -800,7 +932,7 @@ The URL points to the external opportunity.
 
 # 16. Opportunity Retrieval
 
-Future retrieval functionality will use the canonical opportunity URL exposed by the search result.
+Route's opportunity model uses the canonical external URL as the input to direct opportunity retrieval.
 
 The intended MCP-facing contract is:
 
@@ -821,9 +953,67 @@ rather than requiring the client to provide:
 
 This keeps the client contract simple and uses information Route already provides in search results.
 
-Internally, Route can resolve the URL to the provider responsible for retrieving it.
+At the provider layer, direct retrieval is already supported through:
 
-The retrieval feature is not yet implemented.
+```ts
+getByUrl(
+  url: string,
+): Promise<Opportunity | null>;
+```
+
+The provider is responsible for:
+
+```text
+External Opportunity URL
+
+          │
+
+          ▼
+
+Provider-specific retrieval
+
+          │
+
+          ▼
+
+Provider parsing
+
+          │
+
+          ▼
+
+Normalization
+
+          │
+
+          ▼
+
+Route Opportunity
+```
+
+The current providers implement this capability independently.
+
+### Remote OK
+
+The Remote OK provider validates that the URL belongs to Remote OK and represents a supported remote job resource.
+
+It retrieves the source page, extracts the structured `JobPosting` data, and normalizes it into a Route `Opportunity`.
+
+### Devpost
+
+The Devpost provider supports both Devpost's main domain and Devpost-owned hackathon subdomains.
+
+For example:
+
+```text
+https://revenuecat-shipaton-2026.devpost.com/
+```
+
+The provider uses the Devpost API to locate the matching hackathon, compares canonical URLs, and normalizes the matching record into a Route `Opportunity`.
+
+Provider-level retrieval returns `null` when the requested opportunity cannot be resolved.
+
+The Provider Manager's URL ownership resolution and the MCP-facing `get_opportunity` tool are not yet implemented.
 
 ---
 
@@ -835,13 +1025,43 @@ A provider is responsible for:
 
 ```text
 External data
+
       ↓
+
 Provider parsing
+
       ↓
+
 Filtering
+
       ↓
+
 Normalization
+
       ↓
+
+Opportunity
+```
+
+For direct retrieval, the provider additionally owns:
+
+```text
+Opportunity URL
+
+      ↓
+
+Provider-specific retrieval
+
+      ↓
+
+Provider parsing
+
+      ↓
+
+Normalization
+
+      ↓
+
 Opportunity
 ```
 
@@ -851,9 +1071,13 @@ For example:
 
 ```text
 Remote OK ──────┐
+
                 │
+
 Devpost ────────┼──► Opportunity
+
                 │
+
 Future Provider ┘
 ```
 
@@ -872,6 +1096,7 @@ Current capability:
 - Remote filtering
 - Normalization
 - Position-based pagination
+- Direct retrieval by URL
 
 ### Devpost
 
@@ -879,9 +1104,12 @@ Current capability:
 
 - Hackathons
 - Keyword filtering
+- Remote filtering based on source semantics
 - Normalization
 - Native pagination
 - Hackathon-specific metadata
+- Direct retrieval by URL
+- Devpost-owned subdomain URL handling
 
 Provider-specific implementation details are documented separately in:
 
@@ -911,11 +1139,16 @@ Currently implemented:
 - [x] Deduplication
 - [x] Provider pagination
 - [x] Route cursor handling
+- [x] Provider-level direct retrieval
+- [x] Remote OK URL retrieval
+- [x] Devpost URL retrieval
 - [x] MCP search integration
 
 Not yet implemented:
 
-- [ ] Opportunity retrieval
+- [ ] Provider Manager URL ownership resolution
+- [ ] `get_opportunity` application/service layer
+- [ ] `get_opportunity` MCP tool
 - [ ] Saved opportunities
 - [ ] Persistent opportunity state
 - [ ] Opportunity preparation
@@ -930,15 +1163,25 @@ The long-term Route lifecycle is:
 
 ```text
 DISCOVER
+
    ↓
+
 UNDERSTAND
+
    ↓
+
 SAVE
+
    ↓
+
 PREPARE
+
    ↓
+
 ACT
+
    ↓
+
 TRACK
 ```
 
@@ -946,6 +1189,12 @@ The current opportunity system primarily supports:
 
 ```text
 DISCOVER
+```
+
+Provider-level direct retrieval now provides an early foundation for:
+
+```text
+UNDERSTAND
 ```
 
 The rest of the lifecycle will be implemented incrementally.
@@ -956,15 +1205,25 @@ Instead, the capabilities can remain composable:
 
 ```text
 search_opportunities
+
         ↓
+
 get_opportunity
+
         ↓
+
 save_opportunity
+
         ↓
+
 prepare_opportunity
+
         ↓
+
 future action capabilities
+
         ↓
+
 tracking
 ```
 
@@ -982,21 +1241,36 @@ For example:
 
 ```text
 Route
+
 ─────
+
 Search opportunities
+
 Retrieve opportunity data
+
 Normalize provider information
+
 Save opportunity state
+
 Provide structured context
 
+
 Agent
+
 ─────
+
 Understand user intent
+
 Reason about opportunities
+
 Personalize results
+
 Generate explanations
+
 Generate application material
+
 Interact with the user
+
 Automate workflows where appropriate
 ```
 
@@ -1016,11 +1290,17 @@ Potential categories include:
 
 ```text
 Scholarships
+
 Fellowships
+
 Grants
+
 Internships
+
 Accelerators
+
 Events
+
 Freelance opportunities
 ```
 
@@ -1069,6 +1349,10 @@ Provider-specific information can remain available through `metadata`.
 
 Route's internal ID and the external opportunity URL serve different purposes.
 
+### Use URL-based retrieval
+
+The canonical opportunity URL provides a provider-independent input for future direct retrieval at the MCP/application boundary.
+
 ### Avoid premature features
 
 The current MVP focuses on jobs and hackathons before expanding into additional opportunity categories.
@@ -1081,27 +1365,60 @@ The Route opportunity system provides a normalized layer between external opport
 
 ```text
                     EXTERNAL SOURCES
+
                   /                 \
+
                  ▼                   ▼
+
              Remote OK           Devpost
+
                  │                   │
+
                  └────────┬──────────┘
+
                           ▼
+
                     PROVIDER LAYER
+
                           │
+
                           ▼
+
                     NORMALIZATION
+
                           │
+
                           ▼
+
                    OPPORTUNITY MODEL
+
                           │
+
+              ┌───────────┴───────────┐
+
+              │                       │
+
+              ▼                       ▼
+
+        SEARCH SERVICE         DIRECT RETRIEVAL
+
+              │                       │
+
+              └───────────┬───────────┘
+
                           ▼
-                  SEARCH SERVICE
+
+                       MCP
+
                           │
+
                           ▼
-                    MCP / AGENTS
+
+                       AGENTS
 ```
 
 The core responsibility is to turn fragmented provider data into structured, consistent opportunity information that Route can expose through MCP and eventually use across the complete opportunity lifecycle.
+
+At the current stage, the opportunity layer supports discovery through search and has provider-level direct retrieval capabilities. The next retrieval step is to teach the Provider Manager how to determine which provider owns a requested URL, after which the application and MCP layers can expose the complete `get_opportunity` capability.
 
 As new capabilities are implemented, this document should be updated rather than allowing the actual system and documentation to drift apart.
