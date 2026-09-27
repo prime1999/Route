@@ -138,6 +138,26 @@ This supports Route's agent-agnostic architecture.
 
 Route tools should be designed as reusable capabilities rather than as UI-specific operations.
 
+## MCP Foundation Verification
+
+The current Route MCP foundation has been verified through the local MCP client over Streamable HTTP. The installed `@modelcontextprotocol/sdk` version is `1.30.0`, and its public type definitions expose:
+
+```ts
+LATEST_PROTOCOL_VERSION = "2025-11-25";
+```
+
+The Route server uses `StreamableHTTPServerTransport` and currently exposes the local development endpoint at:
+
+```text
+http://localhost:3005/mcp
+```
+
+The integration test successfully completed the initialization handshake, verified server information and capabilities, discovered `health_check`, `search_opportunities`, and `get_opportunity`, and executed all three tools. It also verified normalized search results, Remote OK and Devpost retrieval through `get_opportunity`, and safe handling of unsupported URLs.
+
+This verifies MCP protocol compliance for the current foundation against protocol version `2025-11-25` or later over Streamable HTTP. It does not verify Alexa+ remote integration. Alexa+ has not yet been tested against Route.
+
+The next step is to expose the local MCP server through a publicly reachable HTTPS endpoint and test that endpoint with Alexa+.
+
 ---
 
 # ADR-004 — Use a Provider Abstraction

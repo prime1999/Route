@@ -84,6 +84,14 @@ The SDK provides the protocol implementation used by Route to:
 
 Route does not implement the MCP protocol itself.
 
+The installed SDK version is `@modelcontextprotocol/sdk` `1.30.0`. Its public type definitions expose:
+
+```ts
+LATEST_PROTOCOL_VERSION = "2025-11-25";
+```
+
+This establishes the protocol version available to the current Route MCP foundation. It does not by itself establish a remote Alexa+ connection.
+
 ---
 
 # 4. Streamable HTTP
@@ -95,16 +103,10 @@ This allows an MCP client to communicate with the Route server over HTTP.
 The current development server exposes the MCP endpoint at:
 
 ```text
-/mcp
+http://localhost:3005/mcp
 ```
 
-The exact local address depends on the development port configured when the server is started.
-
-For example:
-
-```text
-http://localhost:<port>/mcp
-```
+The port is configurable through the `PORT` environment variable, but `http://localhost:3005/mcp` is the current local development endpoint.
 
 The port is a development configuration detail and should not be treated as part of Route's permanent public API.
 
@@ -337,6 +339,18 @@ It verifies that the server can:
 
 This gives us an end-to-end test of the MCP layer rather than only testing individual internal services.
 
+The completed verification confirmed that Route can:
+
+- complete the MCP initialization handshake
+- report server information and capabilities
+- discover `health_check`, `search_opportunities`, and `get_opportunity`
+- execute all three tools through Streamable HTTP
+- return normalized opportunity data from `search_opportunities`
+- retrieve opportunities from Remote OK and Devpost through `get_opportunity`
+- handle unsupported URLs safely
+
+This verifies Route's MCP protocol foundation against the installed SDK's `2025-11-25` protocol version over Streamable HTTP. It does not mean that Alexa+ has connected to Route remotely. Alexa+ remote integration remains untested.
+
 ---
 
 # 10. MCP Integration Testing
@@ -568,6 +582,10 @@ Future integrations may also include:
 These are not currently part of the implemented MCP contract.
 
 They should be added only after their underlying behavior has been designed, implemented, tested, and documented.
+
+## Next External Integration Step
+
+The next step for Alexa+ integration is to expose the local MCP server through a publicly reachable HTTPS endpoint and then test that endpoint with Alexa+.
 
 ---
 
