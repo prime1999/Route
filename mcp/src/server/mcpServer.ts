@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { registerHealthCheckTool } from "./tools/healthCheck.js";
-
 import { registerSearchOpportunitiesTool } from "./tools/searchOpportunities.js";
+import { registerGetOpportunityTool } from "./tools/getOpportunity.js";
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -13,6 +13,8 @@ export function createMcpServer(): McpServer {
   registerHealthCheckTool(server);
 
   registerSearchOpportunitiesTool(server);
+
+  registerGetOpportunityTool(server);
 
   return server;
 }
