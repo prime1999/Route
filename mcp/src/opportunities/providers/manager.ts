@@ -52,6 +52,7 @@ export interface OpportunityProviderManagerResult {
  * - decide which providers participate
  * - call providers
  * - preserve provider-specific continuation state
+ * - resolve which provider owns a direct opportunity URL
  *
  * Responsibilities intentionally NOT handled here:
  * - global result limiting
@@ -59,8 +60,16 @@ export interface OpportunityProviderManagerResult {
  * - opaque Route cursors
  * - ranking
  * - MCP tool handling
+ * - provider-specific data parsing
  */
 export class OpportunityProviderManager {
+  /**
+   * Providers currently registered with Route.
+   *
+   * The manager does not need to know the implementation details
+   * of each provider. It communicates with them through the
+   * OpportunityProvider interface.
+   */
   private readonly providers: OpportunityProvider[];
 
   constructor(providers?: OpportunityProvider[]) {
@@ -68,6 +77,9 @@ export class OpportunityProviderManager {
      * Allow dependency injection for testing.
      *
      * In production, Route uses its default providers.
+     *
+     * Tests can provide mock providers instead, which keeps the
+     * manager independent from live external services.
      */
     this.providers = providers ?? [
       new RemoteOkProvider(),
@@ -78,8 +90,8 @@ export class OpportunityProviderManager {
   /**
    * Return the currently registered providers.
    *
-   * A copy is returned so callers cannot mutate the
-   * manager's internal provider list.
+   * A copy is returned so callers cannot mutate the manager's
+   * internal provider list.
    */
   getProviders(): OpportunityProvider[] {
     return [...this.providers];
@@ -195,5 +207,61 @@ export class OpportunityProviderManager {
       opportunities,
       cursors,
     };
+  }
+
+  /**
+   * Resolve an opportunity URL to the provider that owns it
+   * and delegate retrieval to that provider.
+   *
+   * The Provider Manager is responsible only for routing.
+   *
+   * It does NOT:
+   * - fetch the URL itself
+   * - understand provider-specific URL formats
+   * - parse provider-specific responses
+   * - normalize external data
+   *
+   * Each provider owns those responsibilities through:
+   *
+   *   canHandleUrl() → URL ownership
+   *   getByUrl()     → retrieval + normalization
+   *
+   * This keeps the manager provider-agnostic and means that
+   * adding another provider later only requires implementing
+   * the OpportunityProvider interface and registering it.
+   */
+  async getByUrl(url: string): Promise<Opportunity | null> {
+    /**
+     * Find the first provider that claims ownership of
+     * the supplied URL.
+     *
+     * canHandleUrl() should be a local ownership check.
+     * It should not make a network request.
+     */
+    const provider = this.providers.find((candidate) =>
+      candidate.canHandleUrl(url),
+    );
+
+    /**
+     * No registered provider recognizes this URL.
+     *
+     * Returning null keeps the Provider Manager neutral.
+     *
+     * The application/service layer will later decide how this
+     * condition should be represented to the MCP client.
+     */
+    if (!provider) {
+      return null;
+    }
+
+    /**
+     * Delegate the actual retrieval and normalization to the
+     * provider that owns the URL.
+     *
+     * The manager deliberately does not need to know whether
+     * the provider uses an API, HTML, JSON-LD, or another
+     * source-specific retrieval strategy.
+     */
+    return provider.getByUrl(url);
   }
 }

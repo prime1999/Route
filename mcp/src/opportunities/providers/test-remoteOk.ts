@@ -24,7 +24,7 @@ async function main() {
   });
 
   console.log(`Found ${firstPage.opportunities.length} results`);
-
+  console.log("oppotunities", firstPage.opportunities);
   firstPage.opportunities.forEach((opportunity, index) => {
     console.log(`${index + 1}. ${opportunity.title}`);
   });
@@ -64,6 +64,29 @@ async function main() {
   });
 
   console.log("Next cursor:", secondPage.nextCursor);
+
+  console.log("\n--- Testing getByUrl() ---");
+
+  /**
+   * This is a real Remote OK job URL that we previously
+   * inspected and confirmed contains a Schema.org JobPosting.
+   *
+   * We use a real URL here because getByUrl() is specifically
+   * responsible for retrieving an existing external opportunity.
+   */
+  const testJobUrl =
+    "https://remoteok.com/remote-jobs/remote-frontend-engineer-bjak-1137410";
+
+  const retrievedJob = await provider.getByUrl(testJobUrl);
+
+  /**
+   * Print the normalized opportunity returned by the provider.
+   *
+   * We want to verify that the provider converts the Remote OK
+   * page into Route's common Opportunity structure rather than
+   * returning the raw HTML or provider-specific object.
+   */
+  console.log("Retrieved job:", JSON.stringify(retrievedJob, null, 2));
 }
 
 main().catch((error) => {

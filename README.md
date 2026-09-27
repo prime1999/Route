@@ -273,8 +273,8 @@ The planned core MCP interface is:
 | Tool                       | Purpose                                               | Status            |
 | -------------------------- | ----------------------------------------------------- | ----------------- |
 | `health_check`             | Verify the MCP server is running                      | ✅ Implemented    |
-| `search_opportunities`     | Search supported opportunity sources                  | 🚧 In development |
-| `get_opportunity`          | Retrieve detailed opportunity information             | 🚧 Planned        |
+| `search_opportunities`     | Search supported opportunity sources                  | ✅ Implemented    |
+| `get_opportunity`          | Retrieve detailed opportunity information             | 🚧 In development |
 | `save_opportunity`         | Save an opportunity                                   | 🚧 Planned        |
 | `prepare_opportunity`      | Provide opportunity context for preparation workflows | 🚧 Planned        |
 | `list_saved_opportunities` | Retrieve saved opportunities                          | 🔮 Optional       |
@@ -556,9 +556,11 @@ If you want to add a new provider, the goal is that you should be able to implem
 
 ---
 
-## Hackathon
+## Contributing
 
-Route is being developed for the **Amazon Developer Hackathon 2026**.
+Route is open source and contributions are welcome.
+
+See `CONTRIBUTING.md` for development guidelines, architecture conventions, testing practices, and documentation workflow.
 
 The primary track is:
 
