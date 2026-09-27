@@ -164,7 +164,8 @@ src/
     ├── mcpServer.ts
     └── tools/
         ├── healthCheck.ts
-        └── searchOpportunities.ts
+        ├── searchOpportunities.ts
+        └── getOpportunity.ts
 ```
 
 The MCP server is responsible for assembling the tools:
@@ -174,7 +175,9 @@ mcpServer.ts
      │
      ├── registerHealthCheckTool()
      │
-     └── registerSearchOpportunitiesTool()
+    ├── registerSearchOpportunitiesTool()
+    │
+    └── registerGetOpportunityTool()
 ```
 
 This approach makes tools easier to:

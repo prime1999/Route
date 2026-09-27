@@ -402,7 +402,7 @@ Route combines provider cursors into its opaque Route cursor.
 
 ## Decision
 
-The future MCP-facing `get_opportunity` operation will accept the opportunity's canonical URL:
+The MCP-facing `get_opportunity` operation accepts the opportunity's canonical URL:
 
 ```json
 {
@@ -473,13 +473,14 @@ The Provider Manager also implements URL ownership resolution and delegation. Ma
 
 The `OpportunityService` provides the application-level retrieval boundary. It accepts the canonical URL and delegates to the Provider Manager without containing provider-specific URL or parsing logic. Integration tests cover the same Remote OK, Devpost, and unsupported URL flow through the service.
 
-The following pieces are still pending:
+The MCP-facing tool is now implemented and tested through the Route MCP client. It:
 
-```text
-get_opportunity MCP tool
-```
+- accepts an opportunity URL
+- delegates through `OpportunityService` and the Provider Manager
+- returns normalized opportunities for supported Remote OK and Devpost URLs
+- returns a controlled response for unsupported URLs
 
-Therefore, the architectural decision is accepted, while the complete MCP-facing retrieval capability is still under implementation.
+Therefore, the architectural decision and the complete MCP-facing retrieval capability are implemented and tested.
 
 ---
 

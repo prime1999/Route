@@ -64,6 +64,8 @@ mcpServer.ts
      └── registerSearchOpportunitiesTool()
 ```
 
+The server also registers `registerGetOpportunityTool()` for direct retrieval by opportunity URL.
+
 Each tool owns its own implementation.
 
 ---
@@ -231,7 +233,7 @@ This means invalid tool input can be rejected at the MCP tool boundary rather th
 
 # 8. Current MCP Tools
 
-The current MCP server exposes two tools.
+The current MCP server exposes three tools.
 
 ## `health_check`
 
@@ -287,6 +289,28 @@ More detailed search behavior is documented separately in:
 
 ---
 
+## `get_opportunity`
+
+The `get_opportunity` tool retrieves one supported opportunity using its URL.
+
+Current input:
+
+```ts
+{
+  url: string;
+}
+```
+
+The tool delegates to `OpportunityService`, which delegates to the Provider Manager. The Manager resolves URL ownership through each provider's `canHandleUrl()` method and delegates retrieval to the matching provider's `getByUrl()` method.
+
+The result is returned as a normalized Route `Opportunity` serialized as JSON in an MCP text content block. Remote OK URLs and Devpost-owned URLs, including Devpost subdomains, are supported. An unsupported URL returns a controlled explanatory text response rather than an MCP execution error.
+
+Detailed behavior is documented separately in:
+
+[Get Opportunity](./tools/get-opportunity.md)
+
+---
+
 # 9. MCP Client
 
 Route includes a development MCP client used to verify the server independently.
@@ -307,8 +331,9 @@ It verifies that the server can:
 4. List registered tools.
 5. Call `health_check`.
 6. Call `search_opportunities`.
-7. Parse the returned search data.
-8. Read the returned pagination cursor.
+7. Call `get_opportunity`.
+8. Parse the returned search and opportunity data.
+9. Read the returned pagination cursor.
 
 This gives us an end-to-end test of the MCP layer rather than only testing individual internal services.
 
@@ -514,6 +539,7 @@ The current implementation includes:
 - Development MCP client
 - `health_check`
 - `search_opportunities`
+- `get_opportunity`
 - End-to-end MCP testing
 
 The MCP layer currently exposes the opportunity search system without coupling the MCP interface to a specific AI provider.
@@ -527,7 +553,6 @@ Additional tools will be added as their underlying functionality is implemented 
 Planned capabilities include:
 
 ```text id="w9b6pj"
-get_opportunity
 save_opportunity
 list_saved_opportunities
 prepare_opportunity

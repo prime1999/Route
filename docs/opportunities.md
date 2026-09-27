@@ -1015,7 +1015,7 @@ Provider-level retrieval returns `null` when the requested opportunity cannot be
 
 The Provider Manager now resolves URL ownership by calling each registered provider's `canHandleUrl()` method and delegates retrieval to the matching provider's `getByUrl()` method. If no provider claims the URL, the Manager returns `null`.
 
-The `OpportunityService` delegates this retrieval flow to the Provider Manager without provider-specific logic. The service-level flow has been integration-tested for Remote OK, Devpost, and an unsupported URL. The MCP-facing `get_opportunity` tool is not yet implemented or tested.
+The `OpportunityService` delegates this retrieval flow to the Provider Manager without provider-specific logic. The service-level flow has been integration-tested for Remote OK, Devpost, and an unsupported URL. The MCP-facing `get_opportunity` tool has also been tested through the Route MCP client.
 
 ---
 
@@ -1146,11 +1146,11 @@ Currently implemented:
 - [x] Devpost URL retrieval
 - [x] OpportunityService URL retrieval
 - [x] MCP search integration
+- [x] MCP `get_opportunity` integration
 
 Not yet implemented:
 
 - [x] Provider Manager URL ownership resolution
-- [ ] `get_opportunity` MCP tool
 - [ ] Saved opportunities
 - [ ] Persistent opportunity state
 - [ ] Opportunity preparation
@@ -1421,6 +1421,6 @@ The Route opportunity system provides a normalized layer between external opport
 
 The core responsibility is to turn fragmented provider data into structured, consistent opportunity information that Route can expose through MCP and eventually use across the complete opportunity lifecycle.
 
-At the current stage, the opportunity layer supports discovery through search and provider-backed direct retrieval through the Provider Manager. The application and MCP layers still need to expose the complete `get_opportunity` capability.
+At the current stage, the opportunity layer supports discovery through search and provider-backed direct retrieval through the MCP `get_opportunity` tool.
 
 As new capabilities are implemented, this document should be updated rather than allowing the actual system and documentation to drift apart.

@@ -101,11 +101,14 @@ Searches Route's supported opportunity sources for jobs and hackathons.
 
 - [Search Opportunities](./tools/search-opportunities.md)
 
-Additional tools will be documented here as they are implemented.
+### `get_opportunity`
+
+Retrieves one supported opportunity by its canonical URL.
+
+- [Get Opportunity](./tools/get-opportunity.md)
 
 Planned tools include:
 
-- `get_opportunity`
 - `save_opportunity`
 - `prepare_opportunity`
 - `list_saved_opportunities`
@@ -142,6 +145,8 @@ Currently implemented:
 - Devpost provider
 - Provider Manager
 - Opportunity Search Service
+- `get_opportunity`
+- Opportunity URL retrieval through the MCP client
 - Provider-level pagination
 - Route-level cursor handling
 - MCP integration testing
