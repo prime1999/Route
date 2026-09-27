@@ -1015,7 +1015,7 @@ Provider-level retrieval returns `null` when the requested opportunity cannot be
 
 The Provider Manager now resolves URL ownership by calling each registered provider's `canHandleUrl()` method and delegates retrieval to the matching provider's `getByUrl()` method. If no provider claims the URL, the Manager returns `null`.
 
-This Manager-level routing has been tested for Remote OK, Devpost, and an unsupported URL. The application/service layer and MCP-facing `get_opportunity` tool are not yet implemented or tested.
+The `OpportunityService` delegates this retrieval flow to the Provider Manager without provider-specific logic. The service-level flow has been integration-tested for Remote OK, Devpost, and an unsupported URL. The MCP-facing `get_opportunity` tool is not yet implemented or tested.
 
 ---
 
@@ -1144,12 +1144,12 @@ Currently implemented:
 - [x] Provider-level direct retrieval
 - [x] Remote OK URL retrieval
 - [x] Devpost URL retrieval
+- [x] OpportunityService URL retrieval
 - [x] MCP search integration
 
 Not yet implemented:
 
 - [x] Provider Manager URL ownership resolution
-- [ ] `get_opportunity` application/service layer
 - [ ] `get_opportunity` MCP tool
 - [ ] Saved opportunities
 - [ ] Persistent opportunity state

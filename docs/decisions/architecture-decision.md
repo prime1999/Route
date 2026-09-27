@@ -471,13 +471,11 @@ Remote OK and Devpost both implement provider-level URL retrieval.
 
 The Provider Manager also implements URL ownership resolution and delegation. Manager-level tests cover Remote OK retrieval, Devpost retrieval, and an unsupported URL returning `null`.
 
+The `OpportunityService` provides the application-level retrieval boundary. It accepts the canonical URL and delegates to the Provider Manager without containing provider-specific URL or parsing logic. Integration tests cover the same Remote OK, Devpost, and unsupported URL flow through the service.
+
 The following pieces are still pending:
 
 ```text
-Application/service retrieval layer
-
-                ↓
-
 get_opportunity MCP tool
 ```
 
