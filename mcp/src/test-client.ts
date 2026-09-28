@@ -89,7 +89,7 @@ const client = new Client({
  *   http://localhost:3005/mcp
  */
 const transport = new StreamableHTTPClientTransport(
-  new URL("http://localhost:3005/mcp"),
+  new URL("https://volunteers-ireland-stations-tomato.trycloudflare.com/mcp"),
 );
 
 try {
