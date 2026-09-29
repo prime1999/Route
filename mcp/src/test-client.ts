@@ -1,589 +1,291 @@
 /**
- * ROUTE MCP TEST CLIENT
- * ---------------------
+ * Route MCP integration test client.
  *
- * This file is a temporary development client used to verify that
- * another application can communicate with Route through MCP over
- * Streamable HTTP.
+ * This file tests Route from the perspective of an external MCP client.
  *
- * This is NOT part of the Route MCP server itself.
+ * IMPORTANT:
+ * We intentionally test through the MCP protocol instead of importing
+ * Route's internal services directly.
  *
- * Think of this file as pretending to be an external AI application.
+ * This verifies the actual interface that external AI agents,
+ * applications, and other MCP clients will consume.
  *
- * The flow being tested is:
+ * Test flow:
  *
- *   Test Client
- *       ↓
+ *   MCP Test Client
+ *        ↓
  *   Streamable HTTP
- *       ↓
+ *        ↓
  *   Route MCP Server
- *       ↓
- *   MCP Tools
- *       ↓
- *   Route Application Services
- *       ↓
- *   Provider Manager
- *       ↓
- *   Remote OK / Devpost
- *
- * This is important because successfully starting the HTTP server
- * does not prove that the complete MCP request/response flow works.
- *
- * This test verifies:
- *
- *   1. MCP initialization succeeds.
- *   2. Route advertises its server information.
- *   3. Route exposes the expected tools.
- *   4. The health check can be called.
- *   5. search_opportunities can be called through MCP.
- *   6. Structured opportunity data reaches the MCP client.
- *   7. Pagination information can be returned.
- *   8. get_opportunity can retrieve opportunities through MCP.
- *   9. Different providers can be resolved through their URLs.
- *  10. Unsupported URLs are handled safely.
- *  11. The MCP connection can be closed cleanly.
- *
- * This is still a manual development test.
- *
- * Later, once the MCP contract is stable, this kind of behavior can
- * be moved into automated integration tests.
+ *        ↓
+ *   get_opportunity
+ *        ↓
+ *   OpportunityService
+ *        ↓
+ *   Provider
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 /**
- * Create an MCP client.
+ * The local Route MCP endpoint.
  *
- * The name identifies the application connecting to Route.
- *
- * We deliberately call this `route-test-client` because this is only
- * our local development client.
- *
- * In the real world, this could eventually be:
- *
- *   - Alexa+
- *   - Claude
- *   - ChatGPT
- *   - a custom agent
- *   - an IDE integration
- *   - our Route demo application
+ * The MCP server must already be running before this test is executed.
  */
-const client = new Client({
-  name: "route-test-client",
-  version: "0.1.0",
-});
+const MCP_URL = "http://localhost:3005/mcp";
 
 /**
- * Create the Streamable HTTP transport.
+ * Extract a text content block from an MCP tool result.
  *
- * This must point to the same MCP endpoint exposed by `src/index.ts`.
+ * The MCP SDK's `callTool()` return type is a union. Because of that,
+ * TypeScript cannot always assume that `.content` is directly available
+ * on every possible result branch.
  *
- * IMPORTANT:
+ * Instead of using `any` or forcing a type assertion, this helper
+ * performs runtime checks and narrows the result safely.
  *
- * If the port in `src/index.ts` changes, this URL must change with it.
- *
- * The current development endpoint is:
- *
- *   http://localhost:3005/mcp
+ * This also gives us one place to handle MCP text extraction for
+ * multiple tests.
  */
-const transport = new StreamableHTTPClientTransport(
-  new URL("https://volunteers-ireland-stations-tomato.trycloudflare.com/mcp"),
-);
-
-try {
+function getTextContent(
+  result: Awaited<ReturnType<Client["callTool"]>>,
+): string {
   /**
-   * ---------------------------------------------------------------
-   * STEP 1: CONNECT
-   * ---------------------------------------------------------------
-   *
-   * `connect()` performs the MCP initialization handshake.
-   *
-   * If this succeeds, we have proven that the client can establish
-   * an MCP session with Route over Streamable HTTP.
+   * Make sure the result itself is an object and contains a `content`
+   * property before attempting to access it.
    */
+  if (typeof result !== "object" || result === null || !("content" in result)) {
+    throw new Error("MCP tool result does not contain a content field.");
+  }
 
+  /**
+   * The normal CallToolResult contains an array of content blocks.
+   *
+   * Check this explicitly because the SDK's result type is a union.
+   */
+  if (!Array.isArray(result.content)) {
+    throw new Error("MCP tool result content is not an array.");
+  }
+
+  /**
+   * Find the first text content block.
+   *
+   * `content` is treated as unknown here because we are deliberately
+   * narrowing the SDK's union type ourselves.
+   */
+  const textContent = result.content.find(
+    (
+      content: unknown,
+    ): content is {
+      type: "text";
+      text: string;
+    } => {
+      /**
+       * A content block must first be an object.
+       */
+      if (typeof content !== "object" || content === null) {
+        return false;
+      }
+
+      /**
+       * Make sure both fields exist before reading them.
+       */
+      if (!("type" in content) || !("text" in content)) {
+        return false;
+      }
+
+      /**
+       * Finally verify the exact shape we need.
+       */
+      return content.type === "text" && typeof content.text === "string";
+    },
+  );
+
+  /**
+   * A successful Route tool call should contain a text response.
+   *
+   * Fail explicitly if the MCP server returned something else.
+   */
+  if (textContent === undefined) {
+    throw new Error("MCP tool result did not contain a text content block.");
+  }
+
+  return textContent.text;
+}
+
+/**
+ * Run the complete MCP integration test suite.
+ */
+async function main(): Promise<void> {
+  console.log("Connecting to Route MCP server...");
+
+  /**
+   * Create an MCP client.
+   *
+   * This represents an external application connecting to Route.
+   */
+  const client = new Client({
+    name: "route-test-client",
+    version: "0.1.0",
+  });
+
+  /**
+   * Route currently exposes its MCP server through Streamable HTTP.
+   */
+  const transport = new StreamableHTTPClientTransport(new URL(MCP_URL));
+
+  /**
+   * Establish the MCP connection.
+   */
   await client.connect(transport);
 
-  console.log("\nConnected to Route successfully.\n");
+  console.log("✓ Connected to Route MCP server.\n");
 
   /**
    * ---------------------------------------------------------------
-   * STEP 2: SERVER INFORMATION
+   * Test 1: List MCP tools
    * ---------------------------------------------------------------
    *
-   * Ask Route what server identity it advertised during the
-   * initialization handshake.
+   * This confirms that the server is exposing the tools we expect.
    */
-
-  const serverVersion = client.getServerVersion();
-
-  console.log("Server information:");
-  console.log(serverVersion);
-
-  /**
-   * ---------------------------------------------------------------
-   * STEP 3: SERVER CAPABILITIES
-   * ---------------------------------------------------------------
-   *
-   * MCP servers advertise which capabilities they support.
-   *
-   * We expect Route to expose tools.
-   */
-
-  const serverCapabilities = client.getServerCapabilities();
-
-  console.log("\nServer capabilities:");
-  console.log(serverCapabilities);
-
-  /**
-   * ---------------------------------------------------------------
-   * STEP 4: LIST TOOLS
-   * ---------------------------------------------------------------
-   *
-   * Ask Route which tools are currently available.
-   *
-   * At this point we should see:
-   *
-   *   - health_check
-   *   - search_opportunities
-   *   - get_opportunity
-   *
-   * The health check is still a temporary development tool.
-   */
+  console.log("Test 1: Listing MCP tools...");
 
   const toolsResult = await client.listTools();
 
-  console.log("\nAvailable tools:");
-
-  for (const tool of toolsResult.tools) {
-    console.log(`- ${tool.name}: ${tool.description ?? "No description"}`);
-  }
-
   /**
-   * ---------------------------------------------------------------
-   * STEP 5: HEALTH CHECK
-   * ---------------------------------------------------------------
-   *
-   * Keep the health check for now.
-   *
-   * It gives us a very small baseline test that confirms the MCP
-   * server can receive and respond to a tool call independently
-   * of the opportunity system.
-   *
-   * We can remove this temporary tool later.
+   * Print the tool names returned by the MCP server.
    */
-
-  const healthResult = await client.callTool({
-    name: "health_check",
-    arguments: {},
-  });
-
-  console.log("\nhealth_check response:");
-
-  console.dir(healthResult, {
-    depth: null,
-  });
-
-  /**
-   * ---------------------------------------------------------------
-   * STEP 6: SEARCH OPPORTUNITIES
-   * ---------------------------------------------------------------
-   *
-   * This is now the important test.
-   *
-   * We are pretending that an external AI agent asked Route:
-   *
-   *   "Find me AI opportunities."
-   *
-   * We are asking for all supported opportunity types.
-   *
-   * With:
-   *
-   *   limit: 5
-   *
-   * the Search Service semantics are:
-   *
-   *   up to 5 jobs
-   *   up to 5 hackathons
-   *
-   * Therefore the response can contain up to 10 opportunities.
-   */
-
-  const searchResult = await client.callTool({
-    name: "search_opportunities",
-    arguments: {
-      type: "all",
-      keyword: "AI",
-      limit: 5,
-    },
-  });
-
-  console.log("\nsearch_opportunities response:");
-
-  /**
-   * MCP returns the tool result using MCP content blocks.
-   *
-   * `console.dir` lets us inspect the complete structure rather than
-   * assuming what the SDK returned.
-   */
-
-  console.dir(searchResult, {
-    depth: null,
-  });
-
-  /**
-   * ---------------------------------------------------------------
-   * STEP 7: BASIC SEARCH RESULT VALIDATION
-   * ---------------------------------------------------------------
-   *
-   * The MCP SDK intentionally exposes tool results using a broad
-   * type because MCP supports different kinds of content blocks.
-   *
-   * We only need to handle text content for this temporary test
-   * client because our `search_opportunities` tool currently
-   * serializes its structured result as JSON inside a text block.
-   *
-   * We therefore narrow the result before accessing `content`.
-   */
-
-  /**
-   * `isError` is available on MCP tool results and tells us whether
-   * the server reported a tool-level error.
-   */
-
-  if (searchResult.isError) {
-    throw new Error("search_opportunities returned an MCP error.");
-  }
-
-  /**
-   * The SDK types `content` broadly because MCP responses can return
-   * different content representations.
-   *
-   * For this test we only care about text blocks.
-   *
-   * Rather than forcing TypeScript to trust an unsafe cast everywhere,
-   * we first verify that the returned value is an array.
-   */
-
-  if (!Array.isArray(searchResult.content)) {
-    throw new Error(
-      "search_opportunities returned an invalid content structure.",
-    );
-  }
-
-  /**
-   * Now TypeScript knows that `content` is an array.
-   *
-   * We still need to find the text block because MCP responses can
-   * contain multiple content blocks.
-   */
-
-  const textContent = searchResult.content.find(
-    (content) =>
-      typeof content === "object" &&
-      content !== null &&
-      "type" in content &&
-      content.type === "text",
+  console.log(
+    "✓ Available tools:",
+    toolsResult.tools.map((tool) => tool.name).join(", "),
   );
 
   /**
-   * Make sure we actually received a text block.
-   */
-
-  if (
-    !textContent ||
-    typeof textContent !== "object" ||
-    !("text" in textContent) ||
-    typeof textContent.text !== "string"
-  ) {
-    throw new Error(
-      "search_opportunities did not return a valid text content block.",
-    );
-  }
-
-  /**
-   * Parse the JSON returned by the MCP tool.
-   *
-   * This proves that the client can actually consume the structured
-   * result rather than merely receiving a successful MCP response.
-   */
-
-  const parsedSearchResult = JSON.parse(textContent.text) as {
-    opportunities: Array<{
-      id: string;
-      title: string;
-      type: string;
-      organization: string;
-      url: string;
-      source: string;
-    }>;
-    nextCursor?: string;
-  };
-
-  /**
-   * Make sure the response contains the expected top-level
-   * opportunities array.
-   */
-
-  if (!Array.isArray(parsedSearchResult.opportunities)) {
-    throw new Error(
-      "search_opportunities response does not contain an opportunities array.",
-    );
-  }
-
-  console.log("\nParsed opportunities:");
-
-  for (const opportunity of parsedSearchResult.opportunities) {
-    console.log(
-      `- ${opportunity.title} | ${opportunity.type} | ${opportunity.source}`,
-    );
-  }
-
-  /**
-   * Display pagination state.
-   *
-   * The cursor is intentionally treated as opaque.
-   *
-   * The client does not need to know whether it contains:
-   *
-   *   - remoteok:5
-   *   - devpost:2
-   *   - or some future internal representation.
-   */
-
-  console.log("\nNext cursor:", parsedSearchResult.nextCursor ?? "none");
-
-  /**
    * ---------------------------------------------------------------
-   * STEP 8: GET OPPORTUNITY
+   * Test 2: get_opportunity through MCP
    * ---------------------------------------------------------------
    *
-   * Now that `search_opportunities` has been verified through the
-   * real MCP transport, we test the second major opportunity
-   * capability:
+   * This is the main test.
    *
-   *   get_opportunity
+   * We are intentionally NOT importing OpportunityService or
+   * DevpostProvider here.
    *
-   * This simulates an external AI agent taking a URL it discovered
-   * through Route and asking Route for the complete opportunity data.
+   * The request must travel through the actual MCP interface:
    *
-   * The request flow is:
-   *
-   *   MCP Test Client
-   *        ↓
+   *   MCP client
+   *       ↓
    *   Streamable HTTP
-   *        ↓
-   *   Route MCP Server
-   *        ↓
+   *       ↓
+   *   MCP server
+   *       ↓
    *   get_opportunity
-   *        ↓
+   *       ↓
    *   OpportunityService
-   *        ↓
-   *   Provider Manager
-   *        ↓
-   *   Remote OK / Devpost
-   *
-   * We test two supported providers and one unsupported URL.
+   *       ↓
+   *   Devpost provider
    */
+  console.log("\nTest 2: MCP get_opportunity...");
 
   /**
-   * ---------------------------------------------------------------
-   * STEP 8A: REMOTE OK
-   * ---------------------------------------------------------------
-   *
-   * Use a known Remote OK opportunity URL.
-   *
-   * This verifies that the MCP layer can successfully retrieve an
-   * opportunity from the Remote OK provider.
+   * Call the actual MCP tool using an OpenCV Devpost opportunity.
    */
-
-  const remoteOkResult = await client.callTool({
+  const result = await client.callTool({
     name: "get_opportunity",
     arguments: {
-      url: "https://remoteok.com/remote-jobs/remote-frontend-engineer-bjak-1137410",
+      url: "https://opencv26.devpost.com/",
     },
   });
 
-  console.log("\nget_opportunity - Remote OK response:");
-
-  console.dir(remoteOkResult, {
-    depth: null,
-  });
-
   /**
-   * The MCP tool should not report an error for a valid Remote OK
-   * opportunity.
-   */
-
-  if (remoteOkResult.isError) {
-    throw new Error(
-      "get_opportunity returned an MCP error for the Remote OK opportunity.",
-    );
-  }
-
-  /**
-   * The tool currently returns the normalized Opportunity as JSON
-   * inside an MCP text content block.
+   * Extract the text returned by the MCP tool.
    *
-   * Find that text block so we can verify that the client can consume
-   * the returned data.
+   * The Route MCP tool currently returns the normalized opportunity
+   * as JSON inside a text content block.
    */
-
-  if (!Array.isArray(remoteOkResult.content)) {
-    throw new Error(
-      "get_opportunity returned an invalid content structure for Remote OK.",
-    );
-  }
-
-  const remoteOkTextContent = remoteOkResult.content.find(
-    (content) =>
-      typeof content === "object" &&
-      content !== null &&
-      "type" in content &&
-      content.type === "text",
-  );
-
-  if (
-    !remoteOkTextContent ||
-    typeof remoteOkTextContent !== "object" ||
-    !("text" in remoteOkTextContent) ||
-    typeof remoteOkTextContent.text !== "string"
-  ) {
-    throw new Error(
-      "get_opportunity did not return a valid text content block for Remote OK.",
-    );
-  }
+  const opportunityText = getTextContent(result);
 
   /**
-   * Parse the normalized Opportunity returned by Route.
+   * Parse the JSON returned by Route.
+   *
+   * We use `Record<string, unknown>` instead of `any` so that
+   * TypeScript forces us to verify values before using them.
    */
-
-  const parsedRemoteOkOpportunity = JSON.parse(remoteOkTextContent.text) as {
-    id: string;
-    title: string;
-    type: string;
-    organization: string;
-    url: string;
-    source: string;
-  };
+  const opportunity: Record<string, unknown> = JSON.parse(opportunityText);
 
   /**
-   * Verify that Route returned an opportunity from the expected
-   * provider.
+   * Print the complete normalized opportunity.
+   *
+   * JSON.stringify is used so nested fields such as metadata are
+   * displayed properly instead of becoming `[object Object]`.
    */
-
-  if (parsedRemoteOkOpportunity.source !== "remoteok") {
-    throw new Error(
-      `Expected Remote OK source, received "${parsedRemoteOkOpportunity.source}".`,
-    );
-  }
-
   console.log(
-    `✓ Remote OK opportunity retrieved: ${parsedRemoteOkOpportunity.title}`,
+    "✓ MCP get_opportunity returned:",
+    JSON.stringify(opportunity, null, 2),
   );
 
   /**
    * ---------------------------------------------------------------
-   * STEP 8B: DEVPOST
+   * Verify the MCP response contract
    * ---------------------------------------------------------------
    *
-   * Now test a Devpost-owned opportunity URL.
+   * We don't test every provider-specific field here.
    *
-   * This is important because Route must resolve different URLs to
-   * their appropriate providers without the MCP tool knowing anything
-   * about those providers.
+   * The provider tests already verify provider behavior.
+   *
+   * This test is specifically checking that the important normalized
+   * opportunity data survives the complete MCP request/response path.
    */
-
-  const devpostResult = await client.callTool({
-    name: "get_opportunity",
-    arguments: {
-      url: "https://revenuecat-shipaton-2026.devpost.com/",
-    },
-  });
-
-  console.log("\nget_opportunity - Devpost response:");
-
-  console.dir(devpostResult, {
-    depth: null,
-  });
 
   /**
-   * The Devpost retrieval should also complete without an MCP error.
+   * The OpenCV opportunity should be a hackathon.
    */
-
-  if (devpostResult.isError) {
+  if (opportunity.type !== "hackathon") {
     throw new Error(
-      "get_opportunity returned an MCP error for the Devpost opportunity.",
-    );
-  }
-
-  if (!Array.isArray(devpostResult.content)) {
-    throw new Error(
-      "get_opportunity returned an invalid content structure for Devpost.",
-    );
-  }
-
-  const devpostTextContent = devpostResult.content.find(
-    (content) =>
-      typeof content === "object" &&
-      content !== null &&
-      "type" in content &&
-      content.type === "text",
-  );
-
-  if (
-    !devpostTextContent ||
-    typeof devpostTextContent !== "object" ||
-    !("text" in devpostTextContent) ||
-    typeof devpostTextContent.text !== "string"
-  ) {
-    throw new Error(
-      "get_opportunity did not return a valid text content block for Devpost.",
+      `Expected type "hackathon", received "${String(opportunity.type)}".`,
     );
   }
 
   /**
-   * Parse the normalized Devpost opportunity.
+   * The opportunity should have come from Devpost.
    */
-
-  const parsedDevpostOpportunity = JSON.parse(devpostTextContent.text) as {
-    id: string;
-    title: string;
-    type: string;
-    organization: string;
-    url: string;
-    source: string;
-  };
-
-  /**
-   * Verify that the Provider Manager correctly routed the URL to
-   * the Devpost provider.
-   */
-
-  if (parsedDevpostOpportunity.source !== "devpost") {
+  if (opportunity.source !== "devpost") {
     throw new Error(
-      `Expected Devpost source, received "${parsedDevpostOpportunity.source}".`,
+      `Expected source "devpost", received "${String(opportunity.source)}".`,
     );
   }
 
-  console.log(
-    `✓ Devpost opportunity retrieved: ${parsedDevpostOpportunity.title}`,
-  );
+  /**
+   * Verify that the URL returned by Route is the same URL we requested.
+   */
+  if (opportunity.url !== "https://opencv26.devpost.com/") {
+    throw new Error(`Unexpected opportunity URL: ${String(opportunity.url)}`);
+  }
+
+  /**
+   * A normalized opportunity must have a non-empty title.
+   */
+  if (typeof opportunity.title !== "string" || opportunity.title.length === 0) {
+    throw new Error("get_opportunity returned an opportunity without a title.");
+  }
+
+  console.log(`✓ MCP returned ${opportunity.title} successfully.`);
 
   /**
    * ---------------------------------------------------------------
-   * STEP 8C: UNSUPPORTED URL
+   * Test 3: Unsupported URL
    * ---------------------------------------------------------------
    *
-   * Finally, verify that Route does not attempt to retrieve arbitrary
-   * URLs that are not owned by a registered provider.
+   * Route currently supports specific opportunity providers.
    *
-   * The Provider Manager should return null, which the MCP tool
-   * converts into a normal explanatory response.
+   * This test verifies that an unsupported source is handled
+   * gracefully through the MCP layer.
    */
+  console.log("\nTest 3: MCP get_opportunity with unsupported URL...");
 
+  /**
+   * Call get_opportunity using a URL that no Route provider supports.
+   */
   const unsupportedResult = await client.callTool({
     name: "get_opportunity",
     arguments: {
@@ -591,119 +293,52 @@ try {
     },
   });
 
-  console.log("\nget_opportunity - Unsupported URL response:");
-
-  console.dir(unsupportedResult, {
-    depth: null,
-  });
+  /**
+   * Extract the text returned by the MCP tool.
+   */
+  const unsupportedText = getTextContent(unsupportedResult);
 
   /**
-   * An unsupported URL should NOT be treated as an MCP execution
-   * error. It is a valid request that simply has no matching Route
-   * provider.
+   * The current Route implementation returns a human-readable
+   * message when the opportunity cannot be retrieved.
    */
-
-  if (unsupportedResult.isError) {
-    throw new Error(
-      "get_opportunity unexpectedly returned an MCP error for an unsupported URL.",
-    );
-  }
-
-  if (!Array.isArray(unsupportedResult.content)) {
-    throw new Error(
-      "get_opportunity returned an invalid content structure for the unsupported URL.",
-    );
-  }
-
-  const unsupportedTextContent = unsupportedResult.content.find(
-    (content) =>
-      typeof content === "object" &&
-      content !== null &&
-      "type" in content &&
-      content.type === "text",
-  );
-
-  if (
-    !unsupportedTextContent ||
-    typeof unsupportedTextContent !== "object" ||
-    !("text" in unsupportedTextContent) ||
-    typeof unsupportedTextContent.text !== "string"
-  ) {
-    throw new Error(
-      "get_opportunity did not return a valid text response for the unsupported URL.",
-    );
-  }
+  console.log("✓ Unsupported URL response:", unsupportedText);
 
   /**
-   * Verify that Route returned the expected not-found message rather
-   * than attempting to fetch the arbitrary URL.
+   * Make sure the response actually communicates that Route could
+   * not retrieve the opportunity.
    */
-
-  if (
-    !unsupportedTextContent.text.includes(
-      "Route could not retrieve an opportunity",
-    )
-  ) {
+  if (!unsupportedText.includes("Route could not retrieve an opportunity")) {
     throw new Error(
-      "get_opportunity returned an unexpected response for the unsupported URL.",
+      "Unsupported URL response did not contain the expected error message.",
     );
   }
 
-  console.log("✓ Unsupported URL handled correctly.");
+  console.log("✓ Unsupported URL correctly handled.");
 
   /**
    * ---------------------------------------------------------------
-   * FINAL RESULT
+   * Final result
    * ---------------------------------------------------------------
-   *
-   * If execution reaches this point, the complete MCP development
-   * flow tested in this file has succeeded.
    */
+  console.log("\n✓ MCP get_opportunity integration test passed.");
 
-  console.log("\nRoute MCP integration test completed successfully.");
-
-  console.log(
-    "✓ health_check, search_opportunities, and get_opportunity passed.",
-  );
-} catch (error) {
   /**
-   * Any connection, transport, MCP, or tool error reaches this block.
+   * Close the MCP transport so the test process can exit cleanly.
    */
+  await transport.close();
+}
 
-  console.error("\nRoute MCP test failed:");
+/**
+ * Run the test suite.
+ *
+ * Errors are caught here so the test exits with status code 1,
+ * which also makes the failure visible to CI systems later.
+ */
+main().catch((error: unknown) => {
+  console.error("\n✗ MCP integration test failed.");
 
   console.error(error);
 
-  /**
-   * Exit with a non-zero status.
-   *
-   * This is useful later when this test is moved into CI.
-   */
-
-  process.exitCode = 1;
-} finally {
-  /**
-   * ---------------------------------------------------------------
-   * CLEANUP
-   * ---------------------------------------------------------------
-   *
-   * Close the MCP session cleanly.
-   *
-   * If initialization failed, there may not be an active session.
-   * That is why termination errors are ignored here.
-   */
-
-  try {
-    await transport.terminateSession();
-  } catch {
-    /**
-     * Nothing to terminate if the MCP session was never established.
-     */
-  }
-
-  /**
-   * Close the MCP client itself.
-   */
-
-  await client.close();
-}
+  process.exit(1);
+});

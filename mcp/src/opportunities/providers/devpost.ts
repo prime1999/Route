@@ -1,3 +1,14 @@
+/**
+ * Devpost Opportunity Provider
+ *
+ * This provider is responsible for translating Devpost's public
+ * hackathon API into Route's normalized Opportunity model.
+ *
+ * IMPORTANT:
+ * Devpost is an external system, so provider-specific behavior
+ * belongs here rather than inside Route's general opportunity model.
+ */
+
 import type { Opportunity } from "../types.js";
 
 import type {
@@ -40,28 +51,44 @@ const MAX_PAGES_PER_SEARCH = 10;
 interface DevpostHackathon {
   id: number;
   title: string;
+
   displayed_location?: {
     location?: string;
   };
+
   open_state?: string;
+
   url: string;
+
   time_left_to_submission?: string;
+
   submission_period_dates?: string;
+
   themes?: Array<{
     name?: string;
   }>;
+
   prize_amount?: string;
+
   prizes_counts?: {
     cash?: number;
     other?: number;
   };
+
   registrations_count?: number;
+
   organization_name?: string;
+
   winners_announced?: boolean;
+
   invite_only?: boolean;
+
   eligibility_requirement_invite_only_description?: string | null;
+
   managed_by_devpost_badge?: boolean;
+
   submission_gallery_url?: string;
+
   start_a_submission_url?: string;
 }
 
@@ -99,7 +126,7 @@ function isDevpostHackathon(value: unknown): value is DevpostHackathon {
 }
 
 /**
- * Removes HTML tags from values such as:
+ * Cleans HTML tags from values such as:
  *
  * "$<span data-currency-value>740,000</span>"
  *
@@ -119,6 +146,67 @@ function cleanHtml(value?: string): string | undefined {
 }
 
 /**
+ * Normalizes a URL returned by Devpost.
+ *
+ * Devpost's API may occasionally return URLs wrapped as
+ * Markdown links, for example:
+ *
+ * [https://opencv26.devpost.com/](https://opencv26.devpost.com/)
+ *
+ * Route's Opportunity model should never expose provider-specific
+ * Markdown formatting. Consumers expect a normal URL string.
+ *
+ * This helper therefore:
+ *
+ * 1. Removes surrounding whitespace.
+ * 2. Detects Markdown link syntax.
+ * 3. Extracts the actual destination URL.
+ * 4. Returns the original value when it is already a normal URL.
+ *
+ * We intentionally do not attempt to "repair" arbitrary malformed
+ * URLs here. If Devpost gives us something that is not a supported
+ * URL shape, preserving the original value is safer than silently
+ * inventing a destination.
+ */
+function normalizeUrl(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  /**
+   * Match standard Markdown link syntax:
+   *
+   * [label](destination)
+   *
+   * The label and destination are captured separately because
+   * the label itself may contain a URL.
+   */
+  const markdownMatch = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(trimmed);
+
+  if (markdownMatch) {
+    /**
+     * The destination is the second capture group.
+     *
+     * We use the actual destination rather than the Markdown
+     * display label because the destination is what a consumer
+     * should navigate to.
+     */
+    return markdownMatch[2];
+  }
+
+  /**
+   * The value is already a normal URL.
+   */
+  return trimmed;
+}
+
+/**
  * Converts a raw Devpost hackathon into Route's normalized
  * Opportunity model.
  */
@@ -133,6 +221,7 @@ function normalizeHackathon(hackathon: DevpostHackathon): Opportunity {
 
   /**
    * Devpost exposes the prize amount as an HTML string.
+   *
    * We clean it before storing it in the normalized model.
    */
   const prize = cleanHtml(hackathon.prize_amount);
@@ -157,11 +246,32 @@ function normalizeHackathon(hackathon: DevpostHackathon): Opportunity {
    */
   const descriptionParts = [
     hackathon.title,
+
     hackathon.organization_name
       ? `hosted by ${hackathon.organization_name}`
       : undefined,
+
     themes.length > 0 ? `themes: ${themes.join(", ")}` : undefined,
   ].filter(Boolean);
+
+  /**
+   * Normalize every URL supplied by Devpost before exposing
+   * it through Route.
+   *
+   * This is especially important because these URLs may later
+   * be passed between MCP tools. For example:
+   *
+   * search_opportunities
+   *        ↓
+   * opportunity.url
+   *        ↓
+   * get_opportunity({ url })
+   */
+  const opportunityUrl = normalizeUrl(hackathon.url);
+
+  const submissionGalleryUrl = normalizeUrl(hackathon.submission_gallery_url);
+
+  const startSubmissionUrl = normalizeUrl(hackathon.start_a_submission_url);
 
   return {
     id: `devpost:${hackathon.id}`,
@@ -174,7 +284,15 @@ function normalizeHackathon(hackathon: DevpostHackathon): Opportunity {
 
     description: descriptionParts.join(". ") + ".",
 
-    url: hackathon.url,
+    /**
+     * The defensive type guard guarantees hackathon.url
+     * exists, while normalizeUrl() handles provider formatting.
+     *
+     * If Devpost unexpectedly provides an empty URL, falling
+     * back to the original value preserves the provider data
+     * rather than inventing a URL.
+     */
+    url: opportunityUrl ?? hackathon.url,
 
     source: "devpost",
 
@@ -220,9 +338,13 @@ function normalizeHackathon(hackathon: DevpostHackathon): Opportunity {
 
       managedByDevpost: hackathon.managed_by_devpost_badge,
 
-      submissionGalleryUrl: hackathon.submission_gallery_url,
+      /**
+       * These values are now guaranteed to be plain URLs
+       * when Devpost provides Markdown-wrapped links.
+       */
+      submissionGalleryUrl,
 
-      startSubmissionUrl: hackathon.start_a_submission_url,
+      startSubmissionUrl,
     },
   };
 }
@@ -249,6 +371,7 @@ function matchesKeyword(opportunity: Opportunity, keyword?: string): boolean {
     opportunity.title,
     opportunity.organization,
     opportunity.description,
+
     ...(Array.isArray(opportunity.metadata?.themes)
       ? opportunity.metadata.themes
       : []),
@@ -261,7 +384,8 @@ function matchesKeyword(opportunity: Opportunity, keyword?: string): boolean {
 }
 
 /**
- * Converts a continuation cursor into a Devpost page number.
+ * Converts a continuation cursor into a Devpost
+ * page number.
  *
  * Example cursor:
  *
@@ -310,13 +434,13 @@ export class DevpostProvider implements OpportunityProvider {
   /**
    * Determines whether a URL belongs to Devpost.
    *
-   * Devpost hackathons can be hosted directly on devpost.com or on
-   * Devpost-owned subdomains such as:
+   * Devpost hackathons can be hosted directly on
+   * devpost.com or on Devpost-owned subdomains such as:
    *
-   *     https://revenuecat-shipaton-2026.devpost.com/
+   * https://revenuecat-shipaton-2026.devpost.com/
    *
-   * This method only checks URL ownership. It does not make a
-   * network request or attempt to retrieve the hackathon.
+   * This method only checks URL ownership. It does not make
+   * a network request or attempt to retrieve the hackathon.
    */
   canHandleUrl(url: string): boolean {
     try {
@@ -341,8 +465,8 @@ export class DevpostProvider implements OpportunityProvider {
        * The dot before "devpost.com" is important. It prevents
        * lookalike domains such as:
        *
-       *      evildevpost.com
-       *      devpost.com.evil.com
+       * evildevpost.com
+       * devpost.com.evil.com
        */
       return (
         parsedUrl.hostname === "devpost.com" ||
@@ -360,6 +484,7 @@ export class DevpostProvider implements OpportunityProvider {
    * Search Devpost for matching hackathons.
    *
    * Important:
+   *
    * - `limit` means matching opportunities.
    * - Devpost's page size is handled internally.
    * - `cursor` tells us where a previous search stopped.
@@ -497,46 +622,42 @@ export class DevpostProvider implements OpportunityProvider {
     /**
      * If another page is available, expose a continuation
      * cursor pointing to the next page.
-     *
-     * Example:
-     *
-     * currentPage = 4
-     *
-     * nextCursor = "devpost:4"
      */
     const nextCursor = hasMorePages ? `devpost:${currentPage}` : undefined;
 
     return {
       opportunities: results,
-
       nextCursor,
     };
   }
 
   /**
-   * Retrieve one specific hackathon from Devpost using its URL.
+   * Retrieve one specific hackathon from Devpost
+   * using its URL.
    *
-   * Route's get_opportunity operation is URL-based. When an AI agent
-   * receives a Devpost URL from a previous search result, it should
-   * not need to know Devpost's internal numeric ID.
+   * Route's get_opportunity operation is URL-based.
+   * When an AI agent receives a Devpost URL from a previous
+   * search result, it should not need to know Devpost's
+   * internal numeric ID.
    *
    * The provider therefore accepts the URL and resolves the
    * corresponding hackathon through Devpost's API.
    *
-   * We intentionally do NOT scrape the normal Devpost HTML page here.
+   * We intentionally do NOT scrape the normal Devpost HTML
+   * page.
    *
-   * During provider investigation, Devpost's normal HTML page was
-   * protected by AWS WAF, while the public API returned structured
-   * hackathon data. The API is therefore the source used by this
-   * provider for both search and direct retrieval.
+   * During provider investigation, Devpost's normal HTML page
+   * was protected by AWS WAF, while the public API returned
+   * structured hackathon data. The API is therefore the source
+   * used by this provider for both search and direct retrieval.
    *
    * @param url
    * The Devpost hackathon URL supplied by Route.
    *
    * @returns
-   * A normalized Route Opportunity when the hackathon can be found,
-   * or null when the URL is invalid, does not belong to Devpost,
-   * or the requested hackathon cannot be found.
+   * A normalized Route Opportunity when the hackathon can be
+   * found, or null when the URL is invalid, does not belong
+   * to Devpost, or the requested hackathon cannot be found.
    */
   async getByUrl(url: string): Promise<Opportunity | null> {
     /**
@@ -567,10 +688,6 @@ export class DevpostProvider implements OpportunityProvider {
      *
      * DevpostProvider should only handle URLs belonging to
      * devpost.com.
-     *
-     * We also require the URL to have a meaningful pathname because
-     * the pathname is what we use to identify the requested
-     * hackathon.
      */
     if (
       parsedUrl.protocol !== "https:" ||
@@ -585,13 +702,11 @@ export class DevpostProvider implements OpportunityProvider {
      * STEP 3: Extract the requested hackathon URL
      * -------------------------------------------------------------
      *
-     * Devpost's API returns the canonical URL for each hackathon.
-     *
-     * We normalize the incoming URL by removing a trailing slash
+     * Normalize the incoming URL by removing a trailing slash
      * so that these two forms can be compared consistently:
      *
-     * https://devpost.com/hackathons/example
-     * https://devpost.com/hackathons/example/
+     * https://devpost.com/example
+     * https://devpost.com/example/
      */
     const requestedUrl = parsedUrl.toString().replace(/\/$/, "");
 
@@ -600,31 +715,25 @@ export class DevpostProvider implements OpportunityProvider {
      * STEP 4: Search through Devpost API pages
      * -------------------------------------------------------------
      *
-     * Unlike Remote OK, Devpost provides real pagination through
-     * its API.
+     * Unlike Remote OK, Devpost provides real pagination
+     * through its API.
      *
-     * We therefore use the same native pagination mechanism that
-     * the search() method already uses.
-     *
-     * We do not know the API page containing the requested
-     * hackathon from the URL alone, so we progressively inspect
-     * Devpost pages until:
+     * We progressively inspect Devpost pages until:
      *
      * 1. the requested URL is found,
      * 2. Devpost tells us there are no more pages, or
      * 3. MAX_PAGES_PER_SEARCH is reached.
-     *
-     * The safety limit prevents a single getByUrl() call from
-     * requesting an unbounded number of pages.
      */
     let currentPage = 1;
+
     let hasMorePages = true;
+
     let pagesFetched = 0;
 
     while (hasMorePages && pagesFetched < MAX_PAGES_PER_SEARCH) {
       /**
-       * Construct the Devpost API URL using the provider's
-       * native pagination format.
+       * Construct the Devpost API URL using the
+       * provider's native pagination format.
        */
       const apiUrl = `${DEVPOST_API_URL}?page=${currentPage}`;
 
@@ -634,11 +743,8 @@ export class DevpostProvider implements OpportunityProvider {
       const response = await fetch(apiUrl);
 
       /**
-       * Do not attempt to parse an unsuccessful HTTP response.
-       *
-       * An API failure should be surfaced to the caller in the
-       * same way as search(), rather than being mistaken for
-       * "hackathon not found".
+       * Do not attempt to parse an unsuccessful HTTP
+       * response.
        */
       if (!response.ok) {
         throw new Error(
@@ -653,12 +759,13 @@ export class DevpostProvider implements OpportunityProvider {
 
       /**
        * Devpost places hackathons inside the hackathons array.
-       *
-       * If the API returns no hackathons, there is nothing more
-       * to search.
        */
       const rawHackathons = data.hackathons ?? [];
 
+      /**
+       * If the API returns no hackathons, there is nothing
+       * more to search.
+       */
       if (rawHackathons.length === 0) {
         hasMorePages = false;
         break;
@@ -669,24 +776,28 @@ export class DevpostProvider implements OpportunityProvider {
        * STEP 5: Find the requested hackathon
        * -----------------------------------------------------------
        *
-       * We first validate the raw records using the same defensive
-       * type guard used by search().
+       * The API may return the URL as a Markdown-wrapped value.
        *
-       * This keeps malformed external API records from entering
-       * Route's normalized domain model.
+       * We therefore normalize the candidate URL before
+       * comparing it with the URL requested by the caller.
        */
       const hackathon = rawHackathons
         .filter(isDevpostHackathon)
         .find((candidate) => {
           /**
-           * Devpost's API gives us the canonical URL of each
-           * hackathon.
-           *
-           * Normalize the API URL in the same way as the
-           * requested URL so that a trailing slash does not
-           * cause a false mismatch.
+           * Normalize the API-provided URL first.
            */
-          const candidateUrl = candidate.url.trim().replace(/\/$/, "");
+          const normalizedCandidateUrl = normalizeUrl(candidate.url);
+
+          if (!normalizedCandidateUrl) {
+            return false;
+          }
+
+          /**
+           * Remove a trailing slash so that URL comparison
+           * is consistent.
+           */
+          const candidateUrl = normalizedCandidateUrl.replace(/\/$/, "");
 
           return candidateUrl === requestedUrl;
         });
@@ -695,9 +806,9 @@ export class DevpostProvider implements OpportunityProvider {
        * If we found the requested hackathon, normalize it using
        * the exact same normalization function used by search().
        *
-       * This is important because Route should produce the same
-       * Opportunity shape regardless of whether an opportunity
-       * came from search() or getByUrl().
+       * This ensures that Route produces the same Opportunity
+       * shape regardless of whether an opportunity came from
+       * search() or getByUrl().
        */
       if (hackathon) {
         return normalizeHackathon(hackathon);
@@ -707,13 +818,6 @@ export class DevpostProvider implements OpportunityProvider {
        * -----------------------------------------------------------
        * STEP 6: Determine whether another API page exists
        * -----------------------------------------------------------
-       *
-       * Devpost normally provides:
-       *
-       * meta.total_count
-       * meta.per_page
-       *
-       * These allow us to calculate the last available page.
        */
       const totalCount = data.meta?.total_count;
 
@@ -726,11 +830,7 @@ export class DevpostProvider implements OpportunityProvider {
       } else {
         /**
          * If pagination metadata is unavailable,
-         * fall back to the same conservative behavior
-         * used by search().
-         *
-         * A page that is full may indicate that another
-         * page exists.
+         * fall back to conservative behavior.
          */
         hasMorePages = rawHackathons.length >= pageSize;
       }

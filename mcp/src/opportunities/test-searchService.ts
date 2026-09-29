@@ -50,6 +50,8 @@ function printResults(
     title: string;
     type: string;
     source: string;
+    url: string;
+    sourceUrl: string;
   }[],
 ): void {
   console.log(`\n${label}`);
@@ -59,6 +61,9 @@ function printResults(
     console.log(
       `- ${opportunity.title} | ${opportunity.type} | ${opportunity.source}`,
     );
+
+    console.log(`  URL: ${opportunity.url}`);
+    console.log(`  Source URL: ${opportunity.sourceUrl}`);
   }
 }
 
