@@ -117,7 +117,10 @@ if (devpostOpportunity.source !== "devpost") {
     `Expected source "devpost", received "${devpostOpportunity.source}".`,
   );
 }
-
+console.log(
+  "✓ Devpost opportunity retrieved:",
+  JSON.stringify(devpostOpportunity, null, 2),
+);
 console.log(`✓ Devpost opportunity retrieved: ${devpostOpportunity.title}`);
 
 /**

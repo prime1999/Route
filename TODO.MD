@@ -72,6 +72,18 @@ and improvements for Route.
 - [ ] Final demo
 - [ ] Verify hackathon requirements
 
+## Route Skill
+
+- [ ] Build the Route Skill after `prepare_opportunity` and `save_opportunity` are stable.
+  - [ ] Make the Skill the primary setup/onboarding path for developers.
+  - [ ] Let the user's AI coding agent inspect the existing project/client.
+  - [ ] Set up the Route MCP client connection automatically.
+  - [ ] Connect the client to the Route MCP server.
+  - [ ] Generate a lightweight initial Route system prompt/instructions.
+  - [ ] Verify the Route MCP connection.
+  - [ ] Keep generated configuration lightweight and easy for developers to edit.
+  - [ ] Keep the Skill agent/client-agnostic.
+
 ## Documentation
 
 - [x] `docs/README.md`
