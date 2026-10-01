@@ -1147,15 +1147,28 @@ Currently implemented:
 - [x] OpportunityService URL retrieval
 - [x] MCP search integration
 - [x] MCP `get_opportunity` integration
+- [x] Opportunity preparation context schema and runtime validation
 
 Not yet implemented:
 
 - [x] Provider Manager URL ownership resolution
 - [ ] Saved opportunities
 - [ ] Persistent opportunity state
-- [ ] Opportunity preparation
+- [ ] `prepare_opportunity` MCP tool
+- [ ] Provider preparation support
+- [ ] Opportunity preparation workflow
 - [ ] Opportunity tracking
 - [ ] Additional opportunity types
+
+The preparation context schema provides a validated structure for future
+preparation workflows. It reuses the existing normalized opportunity schema
+and can contain preparation dates, requirements, eligibility information,
+constraints, categories, submission details, optional source content, and
+source provenance. Its test accepts a valid preparation context and rejects
+invalid opportunity data, including an invalid opportunity URL.
+
+This schema does not implement the `prepare_opportunity` MCP tool or provider
+preparation behavior.
 
 ---
 
