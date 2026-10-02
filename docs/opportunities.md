@@ -1148,27 +1148,36 @@ Currently implemented:
 - [x] MCP search integration
 - [x] MCP `get_opportunity` integration
 - [x] Opportunity preparation context schema and runtime validation
+- [x] `prepare_opportunity` MCP integration
+- [x] Remote OK preparation context
+- [x] Devpost preparation context
 
 Not yet implemented:
 
 - [x] Provider Manager URL ownership resolution
 - [ ] Saved opportunities
 - [ ] Persistent opportunity state
-- [ ] `prepare_opportunity` MCP tool
-- [ ] Provider preparation support
-- [ ] Opportunity preparation workflow
 - [ ] Opportunity tracking
 - [ ] Additional opportunity types
 
-The preparation context schema provides a validated structure for future
-preparation workflows. It reuses the existing normalized opportunity schema
-and can contain preparation dates, requirements, eligibility information,
-constraints, categories, submission details, optional source content, and
-source provenance. Its test accepts a valid preparation context and rejects
-invalid opportunity data, including an invalid opportunity URL.
+The completed `prepare_opportunity` capability resolves an opportunity URL
+through the Preparation Service and Provider Manager, then delegates to the
+owning provider for a structured `OpportunityPreparationContext`. The context
+can include important dates, eligibility, requirements, constraints,
+categories, submission information, preserved source content, and source
+provenance.
 
-This schema does not implement the `prepare_opportunity` MCP tool or provider
-preparation behavior.
+The current MVP supports preparation through the Remote OK and Devpost
+providers. Route preserves source content and organizes deterministic,
+source-backed information; it does not use an LLM or perform personalized
+reasoning, recommendations, application generation, or automatic submission.
+
+Preparation is complete for the current MVP. It is intentionally not a
+general-purpose retrieval tool for every possible section or linked resource
+of an opportunity. A future `get_opportunity_sub_links` tool remains deferred
+until after the next two specialized opportunity tools are implemented and
+tested. Real client and agent usage at that point will determine which
+additional resources are needed before that tool's contract is finalized.
 
 ---
 

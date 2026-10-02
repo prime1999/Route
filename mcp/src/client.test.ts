@@ -4,6 +4,7 @@
  * This file tests Route from the perspective of an external MCP client.
  *
  * IMPORTANT:
+ *
  * We intentionally test through the MCP protocol instead of importing
  * Route's internal services directly.
  *
@@ -18,9 +19,9 @@
  *        ↓
  *   Route MCP Server
  *        ↓
- *   get_opportunity
+ *   MCP Tool
  *        ↓
- *   OpportunityService
+ *   Route Application Service
  *        ↓
  *   Provider
  */
@@ -162,11 +163,29 @@ async function main(): Promise<void> {
   );
 
   /**
+   * Verify that prepare_opportunity was actually registered.
+   *
+   * This is important because creating the tool implementation alone
+   * does not expose it to an MCP client. The server registration must
+   * also be correct.
+   */
+  const toolNames = toolsResult.tools.map((tool) => tool.name);
+
+  if (!toolNames.includes("prepare_opportunity")) {
+    throw new Error(
+      "prepare_opportunity was not registered with the MCP server.",
+    );
+  }
+
+  console.log("✓ prepare_opportunity is registered.\n");
+
+  /**
    * ---------------------------------------------------------------
    * Test 2: get_opportunity through MCP
    * ---------------------------------------------------------------
    *
-   * This is the main test.
+   * This verifies that the existing opportunity retrieval path still
+   * works after adding the new preparation capability.
    *
    * We are intentionally NOT importing OpportunityService or
    * DevpostProvider here.
@@ -174,18 +193,18 @@ async function main(): Promise<void> {
    * The request must travel through the actual MCP interface:
    *
    *   MCP client
-   *       ↓
+   *        ↓
    *   Streamable HTTP
-   *       ↓
+   *        ↓
    *   MCP server
-   *       ↓
+   *        ↓
    *   get_opportunity
-   *       ↓
+   *        ↓
    *   OpportunityService
-   *       ↓
+   *        ↓
    *   Devpost provider
    */
-  console.log("\nTest 2: MCP get_opportunity...");
+  console.log("Test 2: MCP get_opportunity...");
 
   /**
    * Call the actual MCP tool using an OpenCV Devpost opportunity.
@@ -215,9 +234,6 @@ async function main(): Promise<void> {
 
   /**
    * Print the complete normalized opportunity.
-   *
-   * JSON.stringify is used so nested fields such as metadata are
-   * displayed properly instead of becoming `[object Object]`.
    */
   console.log(
     "✓ MCP get_opportunity returned:",
@@ -269,11 +285,192 @@ async function main(): Promise<void> {
     throw new Error("get_opportunity returned an opportunity without a title.");
   }
 
-  console.log(`✓ MCP returned ${opportunity.title} successfully.`);
+  console.log(`✓ MCP returned ${opportunity.title} successfully.\n`);
 
   /**
    * ---------------------------------------------------------------
-   * Test 3: Unsupported URL
+   * Test 3: prepare_opportunity through MCP
+   * ---------------------------------------------------------------
+   *
+   * This is the new feature we are currently building.
+   *
+   * We intentionally test the complete MCP path instead of importing
+   * PreparationService directly.
+   *
+   * The request must travel through:
+   *
+   *   MCP client
+   *        ↓
+   *   Streamable HTTP
+   *        ↓
+   *   MCP server
+   *        ↓
+   *   prepare_opportunity
+   *        ↓
+   *   PreparationService
+   *        ↓
+   *   ProviderManager
+   *        ↓
+   *   DevpostProvider
+   *        ↓
+   *   Devpost source page
+   */
+  console.log("Test 3: MCP prepare_opportunity...");
+
+  /**
+   * Call the actual MCP preparation tool using the same OpenCV
+   * Devpost opportunity.
+   *
+   * Reusing the same opportunity makes the test easier to reason about:
+   * we already know Route can retrieve this URL, and now we are testing
+   * whether Route can prepare it through the MCP interface.
+   */
+  const preparationResult = await client.callTool({
+    name: "prepare_opportunity",
+    arguments: {
+      url: "https://opencv26.devpost.com/",
+    },
+  });
+
+  /**
+   * Extract the preparation context returned by Route.
+   */
+  const preparationText = getTextContent(preparationResult);
+
+  /**
+   * Parse the preparation context.
+   *
+   * We intentionally keep the parsed value as an untrusted record
+   * rather than assuming every field exists.
+   */
+  const preparation: Record<string, unknown> = JSON.parse(preparationText);
+
+  /**
+   * Print the complete preparation context.
+   *
+   * This is useful during the initial integration phase because we
+   * want to inspect what Route is actually exposing to the MCP client.
+   */
+  console.log(
+    "✓ MCP prepare_opportunity returned:",
+    JSON.stringify(preparation, null, 2),
+  );
+
+  /**
+   * ---------------------------------------------------------------
+   * Verify the preparation response contract
+   * ---------------------------------------------------------------
+   *
+   * The preparation tool should return:
+   *
+   * - the normalized opportunity
+   * - preparation-specific structured information
+   * - source/provenance information
+   *
+   * We are deliberately checking only the contract that belongs to
+   * this MCP integration test. Provider-specific extraction details
+   * remain the responsibility of provider tests.
+   */
+
+  /**
+   * The top-level response must contain an opportunity object.
+   */
+  if (
+    typeof preparation.opportunity !== "object" ||
+    preparation.opportunity === null
+  ) {
+    throw new Error(
+      "prepare_opportunity did not return an opportunity object.",
+    );
+  }
+
+  /**
+   * Narrow the nested opportunity object so we can verify its
+   * normalized Route fields.
+   */
+  const preparedOpportunity = preparation.opportunity as Record<
+    string,
+    unknown
+  >;
+
+  /**
+   * The prepared opportunity should still be the same hackathon.
+   */
+  if (preparedOpportunity.type !== "hackathon") {
+    throw new Error(
+      `Expected prepared opportunity type "hackathon", received "${String(
+        preparedOpportunity.type,
+      )}".`,
+    );
+  }
+
+  /**
+   * The prepared opportunity should come from Devpost.
+   */
+  if (preparedOpportunity.source !== "devpost") {
+    throw new Error(
+      `Expected prepared opportunity source "devpost", received "${String(
+        preparedOpportunity.source,
+      )}".`,
+    );
+  }
+
+  /**
+   * Verify that preparation preserved the requested opportunity URL.
+   */
+  if (preparedOpportunity.url !== "https://opencv26.devpost.com/") {
+    throw new Error(
+      `Unexpected prepared opportunity URL: ${String(preparedOpportunity.url)}`,
+    );
+  }
+
+  /**
+   * The preparation response must contain the structured preparation
+   * section.
+   */
+  if (
+    typeof preparation.preparation !== "object" ||
+    preparation.preparation === null
+  ) {
+    throw new Error("prepare_opportunity did not return a preparation object.");
+  }
+
+  /**
+   * The preparation response must contain source provenance.
+   *
+   * Route needs to make it possible for downstream agents to understand
+   * where the preparation context came from.
+   */
+  if (typeof preparation.source !== "object" || preparation.source === null) {
+    throw new Error("prepare_opportunity did not return source provenance.");
+  }
+
+  /**
+   * Source content should be present for the Devpost provider.
+   *
+   * Route's preparation contract is specifically intended to preserve
+   * useful source information rather than reducing everything to a
+   * generated summary.
+   */
+  if (!Array.isArray(preparation.sourceContent)) {
+    throw new Error("prepare_opportunity did not return sourceContent.");
+  }
+
+  if (preparation.sourceContent.length === 0) {
+    throw new Error(
+      "prepare_opportunity returned an empty sourceContent array.",
+    );
+  }
+
+  console.log(
+    `✓ MCP prepared ${String(
+      preparedOpportunity.title ?? "opportunity",
+    )} successfully.`,
+  );
+
+  /**
+   * ---------------------------------------------------------------
+   * Test 4: Unsupported URL
    * ---------------------------------------------------------------
    *
    * Route currently supports specific opportunity providers.
@@ -281,7 +478,7 @@ async function main(): Promise<void> {
    * This test verifies that an unsupported source is handled
    * gracefully through the MCP layer.
    */
-  console.log("\nTest 3: MCP get_opportunity with unsupported URL...");
+  console.log("\nTest 4: MCP get_opportunity with unsupported URL...");
 
   /**
    * Call get_opportunity using a URL that no Route provider supports.
@@ -321,7 +518,7 @@ async function main(): Promise<void> {
    * Final result
    * ---------------------------------------------------------------
    */
-  console.log("\n✓ MCP get_opportunity integration test passed.");
+  console.log("\n✓ MCP prepare_opportunity integration test passed.");
 
   /**
    * Close the MCP transport so the test process can exit cleanly.
@@ -337,8 +534,6 @@ async function main(): Promise<void> {
  */
 main().catch((error: unknown) => {
   console.error("\n✗ MCP integration test failed.");
-
   console.error(error);
-
   process.exit(1);
 });

@@ -1,5 +1,7 @@
 import type { Opportunity } from "../types.js";
 
+import type { OpportunityPreparationContext } from "../preparation/types.js";
+
 import type {
   OpportunityProvider,
   OpportunityProviderResult,
@@ -262,13 +264,6 @@ export class RemoteOkProvider implements OpportunityProvider {
      *
      * This prevents malformed input from reaching fetch() and gives
      * us a structured URL object that we can safely inspect.
-     *
-     * Example of a valid URL:
-     *
-     * https://remoteok.com/remote-jobs/remote-frontend-engineer-bjak-1137410
-     *
-     * If the string is not a valid URL, there is nothing for this
-     * provider to retrieve, so we return null.
      */
     let parsedUrl: URL;
 
@@ -283,24 +278,13 @@ export class RemoteOkProvider implements OpportunityProvider {
      * STEP 2: Verify that this provider owns the URL
      * -------------------------------------------------------------
      *
-     * Route can eventually have many providers:
-     *
-     * - Remote OK
-     * - Devpost
-     * - other job providers
-     * - other opportunity providers
-     *
-     * A provider must therefore never blindly fetch arbitrary URLs.
+     * A provider must never blindly fetch arbitrary URLs.
      *
      * RemoteOkProvider only accepts URLs that:
      *
      * 1. use HTTPS
      * 2. belong to remoteok.com
      * 3. point to the /remote-jobs/ path
-     *
-     * This keeps provider ownership explicit and prevents this
-     * provider from accidentally handling URLs belonging to another
-     * provider.
      */
     if (
       parsedUrl.protocol !== "https:" ||
@@ -319,9 +303,6 @@ export class RemoteOkProvider implements OpportunityProvider {
      *
      * getByUrl() is different: we already know the exact job URL,
      * so we retrieve the individual HTML page instead.
-     *
-     * We provide a User-Agent so Remote OK can identify the client
-     * making the request.
      */
     const response = await fetch(parsedUrl.toString(), {
       headers: {
@@ -337,13 +318,10 @@ export class RemoteOkProvider implements OpportunityProvider {
      * A valid URL does not guarantee that the resource exists.
      *
      * For example:
-     *
      * - the job may have been removed
      * - Remote OK may return 404
      * - Remote OK may temporarily reject the request
      * - the server may return another HTTP error
-     *
-     * We do not try to parse an unsuccessful response as a job page.
      */
     if (!response.ok) {
       return null;
@@ -367,14 +345,8 @@ export class RemoteOkProvider implements OpportunityProvider {
      *
      * <script type="application/ld+json">
      *
-     * One of those JSON-LD blocks describes the actual job using
-     * the Schema.org "JobPosting" type.
-     *
      * There can be multiple JSON-LD blocks on the page, so we do not
      * assume that the first block is the job.
-     *
-     * Instead, extract all JSON-LD script blocks and find the one
-     * whose @type is "JobPosting".
      */
     const jsonLdMatches = html.matchAll(
       /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
@@ -382,10 +354,6 @@ export class RemoteOkProvider implements OpportunityProvider {
 
     /**
      * We start with no JobPosting data.
-     *
-     * If none of the JSON-LD blocks describes a JobPosting,
-     * getByUrl() will return null rather than creating an incomplete
-     * Opportunity from unreliable HTML.
      */
     let jobPosting: Record<string, any> | null = null;
 
@@ -406,10 +374,6 @@ export class RemoteOkProvider implements OpportunityProvider {
         /**
          * We only care about the JSON-LD object representing
          * the actual job.
-         *
-         * Remote OK may include other structured data on the page,
-         * so checking @type prevents us from accidentally parsing
-         * unrelated metadata such as Product or Organization data.
          */
         if (
           parsed &&
@@ -417,21 +381,12 @@ export class RemoteOkProvider implements OpportunityProvider {
           parsed["@type"] === "JobPosting"
         ) {
           jobPosting = parsed;
-
-          /**
-           * We found the exact structured job object we need,
-           * so there is no reason to inspect the remaining
-           * JSON-LD blocks.
-           */
           break;
         }
       } catch {
         /**
          * A malformed JSON-LD block should not prevent us from
          * checking the other JSON-LD blocks on the page.
-         *
-         * Remote OK may contain multiple structured-data blocks,
-         * so we simply continue searching.
          */
         continue;
       }
@@ -450,32 +405,16 @@ export class RemoteOkProvider implements OpportunityProvider {
      * STEP 6: Extract the Remote OK job ID
      * -------------------------------------------------------------
      *
-     * Route's internal Opportunity model requires an id.
-     *
      * The canonical Remote OK URL contains the job ID at the end.
      *
      * Example:
      *
      * /remote-jobs/remote-frontend-engineer-bjak-1137410
      *                                             ^^^^^^^
-     *
-     * The final numeric section is the Remote OK job ID.
-     *
-     * We keep this ID internally as:
-     *
-     * remoteok:1137410
-     *
-     * The provider prefix is important because IDs from different
-     * providers could otherwise collide.
      */
     const jobIdMatch = parsedUrl.pathname.match(/-(\d+)\/?$/);
-
     const jobId = jobIdMatch?.[1];
 
-    /**
-     * If the URL does not contain a recognizable Remote OK job ID,
-     * we cannot construct a stable provider-specific identity.
-     */
     if (!jobId) {
       return null;
     }
@@ -485,30 +424,18 @@ export class RemoteOkProvider implements OpportunityProvider {
      * STEP 7: Extract additional Remote OK metadata
      * -------------------------------------------------------------
      *
-     * The JobPosting JSON-LD contains the core job information,
-     * but Remote OK also exposes useful metadata in the HTML page.
+     * Remote OK also exposes useful metadata in the HTML page.
      *
      * One example is currentJobTags.
-     *
-     * We keep this extraction provider-specific. The rest of Route
-     * should not need to know how Remote OK stores its tags.
      */
     const tagsMatch = html.match(/currentJobTags\s*=\s*(\[[\s\S]*?\]);/);
 
-    /**
-     * Start with an empty array so that the normalized Opportunity
-     * always has a predictable tags value.
-     */
     let tags: string[] = [];
 
     if (tagsMatch?.[1]) {
       try {
         const parsedTags = JSON.parse(tagsMatch[1]);
 
-        /**
-         * External data is untrusted, so make sure the parsed value
-         * is actually an array before using it.
-         */
         if (Array.isArray(parsedTags)) {
           tags = parsedTags.map(String);
         }
@@ -528,120 +455,173 @@ export class RemoteOkProvider implements OpportunityProvider {
      * STEP 8: Normalize the external job into Route's model
      * -------------------------------------------------------------
      *
-     * This is the provider boundary.
-     *
-     * Everything above this point deals with Remote OK's external
-     * representation.
-     *
      * Everything returned below follows Route's common Opportunity
      * structure.
-     *
-     * This means consumers such as:
-     *
-     * - the MCP tools
-     * - Search Service
-     * - Provider Manager
-     * - future agents
-     *
-     * do not need to understand Remote OK's HTML or JSON-LD format.
      */
     return {
-      /**
-       * Route's internal provider-scoped identity.
-       */
       id: `remoteok:${jobId}`,
 
-      /**
-       * Job title from Schema.org JobPosting.
-       */
       title: String(jobPosting.title ?? ""),
 
-      /**
-       * Remote OK currently represents jobs only.
-       */
       type: "job",
 
-      /**
-       * Organization information comes from the
-       * Schema.org hiringOrganization object.
-       */
       organization: String(jobPosting.hiringOrganization?.name ?? ""),
 
       /**
-       * The full job description supplied by Remote OK.
+       * Preserve the full job description supplied by Remote OK.
        */
       description: String(jobPosting.description ?? ""),
 
-      /**
-       * Preserve the canonical URL that was used to retrieve
-       * this opportunity.
-       *
-       * This URL is particularly important because Route's
-       * get_opportunity contract is URL-based.
-       */
       url: parsedUrl.toString(),
 
-      /**
-       * Identify the provider that produced this opportunity.
-       */
       source: "remoteok",
 
-      /**
-       * The source URL identifies the Remote OK API used by
-       * this provider for search operations.
-       */
       sourceUrl: REMOTE_OK_API,
 
       /**
        * Remote OK is a remote-job provider.
-       *
-       * We therefore normalize every job returned by this
-       * provider as remote.
-       *
-       * This intentionally does not depend on a `remote` field
-       * from Remote OK's search API because that field is not
-       * consistently present in the API response.
-       *
-       * getByUrl() independently confirms remote status through
-       * Schema.org's TELECOMMUTE value when reading the detailed
-       * job page.
        */
       remote: true,
 
-      /**
-       * Keep useful provider-specific information in metadata.
-       *
-       * Metadata is intentionally separate from Route's core
-       * Opportunity fields so that provider-specific information
-       * does not leak into the common domain model.
-       */
       metadata: {
-        /**
-         * Tags extracted from Remote OK's page.
-         */
         tags,
-
-        /**
-         * When Remote OK originally published the job.
-         */
         publishedAt: jobPosting.datePosted,
-
-        /**
-         * Employment classification, such as FULL_TIME.
-         */
         employmentType: jobPosting.employmentType,
-
-        /**
-         * Date after which the job posting is no longer valid,
-         * when Remote OK provides one.
-         */
         validThrough: jobPosting.validThrough,
+        salary: jobPosting.baseSalary,
+      },
+    };
+  }
+
+  /**
+   * Build preparation context for an already-resolved Remote OK job.
+   *
+   * Remote OK's getByUrl() already extracts the authoritative
+   * JobPosting information that Route currently needs for preparation.
+   *
+   * We therefore organize information already present on the
+   * normalized Opportunity instead of making another network request.
+   *
+   * This method intentionally does NOT:
+   * - generate an LLM summary
+   * - decide whether the user should apply
+   * - determine user qualification
+   * - generate personalized application advice
+   *
+   * Those responsibilities belong to the connected AI agent.
+   */
+  async getPreparationContext(
+    opportunity: Opportunity,
+  ): Promise<OpportunityPreparationContext> {
+    /**
+     * Preserve the original job description as source content.
+     *
+     * Route does not rewrite or summarize this content.
+     */
+    const sourceContent = opportunity.description
+      ? [
+          {
+            title: opportunity.title,
+            content: opportunity.description,
+            url: opportunity.url,
+          },
+        ]
+      : undefined;
+
+    /**
+     * Build dates only when the provider actually gives us
+     * a useful value.
+     *
+     * validThrough represents the date after which the job
+     * posting is no longer valid, when Remote OK provides it.
+     */
+    const importantDates: {
+      label: string;
+      value: string;
+    }[] = [];
+
+    const validThrough = opportunity.metadata?.validThrough;
+
+    if (typeof validThrough === "string" && validThrough.length > 0) {
+      importantDates.push({
+        label: "Valid through",
+        value: validThrough,
+      });
+    }
+
+    /**
+     * Employment type is useful preparation context, but it is
+     * not an application requirement.
+     *
+     * We therefore expose it under requirements as a factual
+     * source-backed item rather than inventing qualifications.
+     */
+    const requirements = opportunity.metadata?.employmentType
+      ? [
+          {
+            title: "Employment type",
+            description: String(opportunity.metadata.employmentType),
+          },
+        ]
+      : undefined;
+
+    return {
+      /**
+       * Keep the normalized Opportunity as the core source of truth.
+       */
+      opportunity,
+
+      preparation: {
+        importantDates: importantDates.length > 0 ? importantDates : undefined,
+
+        requirements,
 
         /**
-         * Salary information supplied by Remote OK's
-         * JobPosting structured data.
+         * Remote OK does not currently provide reliable structured
+         * eligibility information through our normalized provider data.
+         *
+         * Leave it undefined instead of inventing requirements.
          */
-        salary: jobPosting.baseSalary,
+        eligibility: undefined,
+
+        /**
+         * No structured preparation constraints are currently
+         * available from the Remote OK provider.
+         */
+        constraints: undefined,
+
+        /**
+         * Remote OK tags remain available under opportunity.metadata.
+         *
+         * We do not duplicate them as categories without a clear
+         * source-level distinction.
+         */
+        categories: undefined,
+
+        /**
+         * Remote OK does not currently expose a structured submission
+         * contract in this preparation model.
+         *
+         * If an applyUrl is available, it remains in
+         * opportunity.metadata.applyUrl.
+         */
+        submission: undefined,
+      },
+
+      /**
+       * Preserve the source description as-is so the connected
+       * AI agent can reason over the actual source material.
+       */
+      sourceContent,
+
+      /**
+       * Record where this preparation context came from and
+       * when Route retrieved it.
+       */
+      source: {
+        provider: this.name,
+        url: opportunity.url,
+        retrievedAt: new Date().toISOString(),
       },
     };
   }
@@ -769,12 +749,9 @@ export class RemoteOkProvider implements OpportunityProvider {
     /**
      * Remote OK is a remote-job provider.
      *
-     * The public Remote OK API does not consistently expose
-     * a reliable `remote: true` field on every raw job object.
-     *
-     * Therefore, when the caller asks for remote opportunities,
-     * we do not inspect `job.remote`. The provider itself is
-     * the source of truth for this property.
+     * The provider itself is the source of truth for this
+     * property, so no additional filtering is required here
+     * when params.remote === true.
      */
     if (params.remote === true) {
       // Remote OK jobs are treated as remote by this provider.
@@ -789,8 +766,7 @@ export class RemoteOkProvider implements OpportunityProvider {
     }
 
     /**
-     * Normalize the keyword so matching is
-     * case-insensitive.
+     * Normalize the keyword so matching is case-insensitive.
      */
     const keyword = params.keyword.toLowerCase();
 

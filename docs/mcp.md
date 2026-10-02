@@ -179,7 +179,9 @@ src/
     │
     └── tools/
         ├── healthCheck.ts
-        └── searchOpportunities.ts
+        ├── searchOpportunities.ts
+        ├── getOpportunity.ts
+        └── prepareOpportunity.ts
 ```
 
 Each tool exposes a registration function.
@@ -190,6 +192,10 @@ Conceptually:
 registerHealthCheckTool(server)
 
 registerSearchOpportunitiesTool(server)
+
+registerGetOpportunityTool(server)
+
+registerPrepareOpportunityTool(server)
 ```
 
 The MCP server calls these functions during initialization.
@@ -207,7 +213,7 @@ tools/
 └── prepareOpportunity.ts
 ```
 
-The future files should only be added when those tools are actually implemented.
+Additional tool files should only be added when those tools are actually implemented.
 
 ---
 
@@ -554,6 +560,7 @@ The current implementation includes:
 - `health_check`
 - `search_opportunities`
 - `get_opportunity`
+- `prepare_opportunity`
 - End-to-end MCP testing
 
 The MCP layer currently exposes the opportunity search system without coupling the MCP interface to a specific AI provider.
@@ -569,8 +576,12 @@ Planned capabilities include:
 ```text id="w9b6pj"
 save_opportunity
 list_saved_opportunities
-prepare_opportunity
 ```
+
+`prepare_opportunity` is implemented for the current MVP. It retrieves and
+organizes source-backed preparation context for supported opportunity URLs.
+The tool does not use an LLM or perform personalized reasoning,
+recommendations, application generation, or automatic submission.
 
 Future integrations may also include:
 

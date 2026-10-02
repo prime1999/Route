@@ -1,5 +1,7 @@
 import type { Opportunity, OpportunityType } from "../types.js";
 
+import type { OpportunityPreparationContext } from "../preparation/types.js";
+
 /**
  * Represents the opportunity types that a provider search can target.
  *
@@ -76,7 +78,8 @@ export interface OpportunityProviderResult {
  * Contract every Route opportunity provider must implement.
  *
  * Providers are responsible for translating their external source
- * into Route's normalized Opportunity model.
+ * into Route's normalized Opportunity model and for handling
+ * source-specific retrieval/enrichment behavior.
  */
 export interface OpportunityProvider {
   /**
@@ -121,4 +124,26 @@ export interface OpportunityProvider {
    * requested opportunity.
    */
   getByUrl(url: string): Promise<Opportunity | null>;
+
+  /**
+   * Retrieves additional source information needed to prepare
+   * for an opportunity.
+   *
+   * The Opportunity is passed in because the provider has already
+   * resolved the opportunity through getByUrl(). This method is
+   * responsible for enriching that opportunity with preparation-
+   * relevant information from the provider's source.
+   *
+   * When the source provides full descriptive or instructional
+   * content, the provider should preserve that content in the
+   * returned preparation context rather than replacing it with
+   * an LLM-generated summary.
+   *
+   * Route is responsible for retrieving and organizing source-backed
+   * information. A connected AI agent is responsible for reasoning,
+   * personalization, and generating preparation advice.
+   */
+  getPreparationContext(
+    opportunity: Opportunity,
+  ): Promise<OpportunityPreparationContext>;
 }

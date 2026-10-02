@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { z } from "zod";
 
-import { OpportunitySearchService } from "../../opportunities/searchService.js";
+import { OpportunitySearchService } from "../../opportunities/services/searchService.js";
 
 /**
  * Single shared search service instance.

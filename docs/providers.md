@@ -341,7 +341,28 @@ The provider was tested independently against a real Remote OK job URL.
 
 ---
 
-# 8. Devpost Direct Retrieval
+# 8. Provider Preparation Context
+
+Providers expose preparation context through `getPreparationContext()` after
+the Provider Manager has resolved and retrieved an opportunity. The provider
+owns source-specific extraction and returns a normalized
+`OpportunityPreparationContext`.
+
+Preparation context may include important dates, eligibility, requirements,
+constraints, categories, submission information, preserved source content,
+and source provenance. Providers preserve source-backed content rather than
+asking Route to generate an LLM summary.
+
+Remote OK and Devpost currently implement preparation context. Their provider
+tests and the MCP client integration test verify preparation behavior.
+
+Route's preparation layer does not provide personalized reasoning,
+recommendations, application generation, or automatic submission. Those
+responsibilities remain with the connected AI agent or application.
+
+---
+
+# 9. Devpost Direct Retrieval
 
 Devpost supports direct retrieval of hackathons through `getByUrl()`.
 
@@ -383,7 +404,7 @@ This ensures that an opportunity retrieved through `getByUrl()` has the same nor
 
 ---
 
-# 9. Devpost URL Structure
+# 10. Devpost URL Structure
 
 Devpost uses more than one URL structure for hackathons.
 
@@ -433,7 +454,7 @@ This URL behavior was discovered and verified through live provider testing.
 
 ---
 
-# 10. Provider-Specific Remote Semantics
+# 11. Provider-Specific Remote Semantics
 
 The `remote` field exists in Route's normalized `Opportunity` model, but providers may determine its value differently.
 
@@ -481,7 +502,7 @@ Opportunity.remote
 
 This allows future providers to determine remote status according to their own source data without changing the core opportunity model.
 
-# 11. Provider Manager
+# 12. Provider Manager
 
 The Provider Manager coordinates registered providers.
 
@@ -523,7 +544,7 @@ Provider Manager
 
 ---
 
-# 12. Provider Selection
+# 13. Provider Selection
 
 When a search specifies a particular type, the Provider Manager selects providers that support that type.
 
@@ -563,7 +584,7 @@ This keeps provider selection centralized rather than requiring individual tools
 
 ---
 
-# 13. Provider Independence
+# 14. Provider Independence
 
 Each provider is independently responsible for its external source.
 
@@ -585,7 +606,7 @@ This is particularly important because external APIs can change independently.
 
 ---
 
-# 14. Remote OK Provider
+# 15. Remote OK Provider
 
 The Remote OK provider is located at:
 
@@ -609,7 +630,7 @@ The provider uses native `fetch` rather than requiring a dedicated SDK.
 
 ---
 
-# 15. Remote OK Data Flow
+# 16. Remote OK Data Flow
 
 The Remote OK provider follows this general flow:
 
@@ -639,7 +660,7 @@ The provider only returns jobs.
 
 ---
 
-# 16. Remote OK Filtering
+# 17. Remote OK Filtering
 
 Keyword searches are performed against relevant Remote OK fields.
 
@@ -660,7 +681,7 @@ to match relevant jobs without requiring Route to define a fixed list of support
 
 ---
 
-# 17. Remote Filtering
+# 18. Remote Filtering
 
 Remote OK opportunities can also be filtered using the `remote` parameter.
 
@@ -676,7 +697,7 @@ Provider-specific filtering remains inside the provider because external sources
 
 ---
 
-# 18. Remote OK Normalization
+# 19. Remote OK Normalization
 
 Remote OK data is transformed into Route's common `Opportunity` structure.
 
@@ -708,7 +729,7 @@ This allows Route to preserve useful information without making every provider-s
 
 ---
 
-# 19. Remote OK Pagination
+# 20. Remote OK Pagination
 
 Remote OK's public feed does not provide the type of reliable native pagination Route requires for its filtered search behavior.
 
@@ -742,7 +763,7 @@ This keeps the cursor compact and provider-specific.
 
 ---
 
-# 20. Devpost Provider
+# 21. Devpost Provider
 
 The Devpost provider is located at:
 
@@ -766,7 +787,7 @@ This endpoint was identified by inspecting the network requests used by Devpost'
 
 ---
 
-# 21. Devpost Data Flow
+# 22. Devpost Data Flow
 
 The Devpost provider follows:
 
@@ -793,7 +814,7 @@ The provider returns hackathons only.
 
 ---
 
-# 22. Devpost Pagination
+# 23. Devpost Pagination
 
 Devpost provides page-based pagination.
 
@@ -820,7 +841,7 @@ A provisional maximum page limit is used as a safety mechanism so a single searc
 
 ---
 
-# 23. Devpost Normalization
+# 24. Devpost Normalization
 
 Devpost records are normalized into Route opportunities.
 
@@ -858,7 +879,7 @@ startSubmissionUrl
 
 ---
 
-# 24. Devpost Opportunity Description
+# 25. Devpost Opportunity Description
 
 Devpost does not always expose a single normalized description field in the search response that maps directly to Route's model.
 
@@ -874,7 +895,7 @@ The rest of Route receives only the normalized `description`.
 
 ---
 
-# 25. Provider Cursors
+# 26. Provider Cursors
 
 Provider cursors are intentionally provider-specific.
 
@@ -896,7 +917,7 @@ The final Route cursor contains the provider continuation state required for the
 
 ---
 
-# 26. Provider Cursor Ownership
+# 27. Provider Cursor Ownership
 
 The provider owns the meaning of its cursor.
 
@@ -918,7 +939,7 @@ This separation is important because different external sources may use complete
 
 ---
 
-# 27. Search Distribution vs Provider Behavior
+# 28. Search Distribution vs Provider Behavior
 
 The Provider Manager combines provider results, but it does not decide the final user-facing distribution semantics.
 
@@ -958,7 +979,7 @@ This keeps provider behavior independent from Route's public search contract.
 
 ---
 
-# 28. Adding a New Provider
+# 29. Adding a New Provider
 
 A new provider should implement the existing provider abstraction rather than modifying the MCP tools directly.
 
@@ -994,7 +1015,7 @@ The MCP search tool should not need provider-specific logic added to it.
 
 ---
 
-# 29. Provider Implementation Checklist
+# 30. Provider Implementation Checklist
 
 A provider should answer the following questions before being considered complete.
 
@@ -1045,7 +1066,7 @@ A provider should answer the following questions before being considered complet
 
 ---
 
-# 30. Provider Testing
+# 31. Provider Testing
 
 Provider implementations are tested independently before being relied upon by higher layers.
 
@@ -1075,7 +1096,7 @@ Provider tests are especially useful because external APIs can fail independentl
 
 ---
 
-# 31. External Provider Failures
+# 32. External Provider Failures
 
 Providers depend on external systems.
 
@@ -1096,7 +1117,7 @@ Until then, Route should avoid documenting an invented error-response format.
 
 ---
 
-# 32. Current Providers
+# 33. Current Providers
 
 The current provider registry contains:
 
@@ -1116,7 +1137,7 @@ Additional providers can be registered without changing the overall provider arc
 
 ---
 
-# 33. Provider Architecture Summary
+# 34. Provider Architecture Summary
 
 The provider system can be summarized as:
 
@@ -1153,7 +1174,7 @@ This keeps Route extensible as additional opportunity sources are introduced.
 
 ---
 
-# 34. Future Provider Work
+# 35. Future Provider Work
 
 Future provider work may include:
 
@@ -1172,7 +1193,7 @@ The current priority is to make the existing provider architecture reliable befo
 
 ---
 
-# 35. Related Documentation
+# 36. Related Documentation
 
 For the broader opportunity architecture, see:
 

@@ -1,101 +1,109 @@
-import { z } from "zod";
-
-import { OpportunitySchema } from "../schema.js";
+import type { Opportunity } from "../types.js";
 
 /**
- * Schema for an important preparation-related date.
- */
-export const preparationDateSchema = z.object({
-  label: z.string(),
-  value: z.string(),
-});
-
-/**
- * Schema for a requirement extracted from the opportunity source.
- */
-export const preparationRequirementSchema = z.object({
-  title: z.string(),
-  description: z.string().optional(),
-});
-
-/**
- * Schema for eligibility information.
- */
-export const preparationEligibilitySchema = z.object({
-  title: z.string(),
-  description: z.string().optional(),
-});
-
-/**
- * Schema for participation or preparation constraints.
- */
-export const preparationConstraintSchema = z.object({
-  title: z.string(),
-  description: z.string().optional(),
-});
-
-/**
- * Schema for opportunity categories, tracks, or themes.
- */
-export const preparationCategorySchema = z.object({
-  name: z.string(),
-  description: z.string().optional(),
-});
-
-/**
- * Schema for submission information.
- */
-export const preparationSubmissionSchema = z.object({
-  requirements: z.array(z.string()).optional(),
-  instructions: z.string().optional(),
-  submissionUrl: z.url().optional(),
-});
-
-/**
- * Schema for source content retrieved specifically for preparation.
+ * Represents an important date associated with an opportunity.
  *
- * Route preserves this content as source material instead of asking
- * an LLM to summarize or interpret it.
+ * Examples:
+ * - Submission deadline
+ * - Registration deadline
+ * - Event start date
+ * - Event end date
  */
-export const preparationSourceContentSchema = z.object({
-  title: z.string().optional(),
-  content: z.string(),
-  url: z.url(),
-});
+export interface PreparationDate {
+  label: string;
+  value: string;
+}
 
 /**
- * Schema describing the provenance of the preparation context.
+ * Represents a requirement extracted from the opportunity source.
  */
-export const preparationSourceSchema = z.object({
-  provider: z.string(),
-  url: z.url(),
-  retrievedAt: z.string(),
-});
+export interface PreparationRequirement {
+  title: string;
+  description?: string;
+}
 
 /**
- * Complete runtime validation schema for prepare_opportunity.
+ * Represents eligibility information extracted from the opportunity source.
+ */
+export interface PreparationEligibility {
+  title: string;
+  description?: string;
+}
+
+/**
+ * Represents a constraint that may affect participation
+ * or preparation for the opportunity.
+ */
+export interface PreparationConstraint {
+  title: string;
+  description?: string;
+}
+
+/**
+ * Represents a category, track, theme, or other classification
+ * provided by the opportunity source.
+ */
+export interface PreparationCategory {
+  name: string;
+  description?: string;
+}
+
+/**
+ * Represents submission-related information.
+ */
+export interface PreparationSubmission {
+  requirements?: string[];
+  instructions?: string;
+  submissionUrl?: string;
+}
+
+/**
+ * Represents additional source content retrieved specifically
+ * to help an AI agent understand how to prepare for an opportunity.
  *
- * The existing opportunitySchema is reused here so that the core
- * Opportunity model has a single source of truth.
+ * Route preserves the original source content rather than
+ * generating an LLM summary.
  */
-export const opportunityPreparationContextSchema = z.object({
-  opportunity: OpportunitySchema,
+export interface PreparationSourceContent {
+  title?: string;
+  content: string;
+  url: string;
+}
 
-  preparation: z.object({
-    importantDates: z.array(preparationDateSchema).optional(),
+/**
+ * Represents the provenance of the preparation context.
+ *
+ * This allows consumers to know which provider supplied the
+ * information, which source URL it came from, and when it was
+ * retrieved.
+ */
+export interface PreparationSource {
+  provider: string;
+  url: string;
+  retrievedAt: string;
+}
 
-    requirements: z.array(preparationRequirementSchema).optional(),
+/**
+ * Complete TypeScript representation of the preparation context
+ * returned by prepare_opportunity.
+ *
+ * The core Opportunity object remains the single source of truth
+ * for the opportunity itself. This type only adds preparation-
+ * specific information around that Opportunity.
+ */
+export interface OpportunityPreparationContext {
+  opportunity: Opportunity;
 
-    eligibility: z.array(preparationEligibilitySchema).optional(),
+  preparation: {
+    importantDates?: PreparationDate[];
+    requirements?: PreparationRequirement[];
+    eligibility?: PreparationEligibility[];
+    constraints?: PreparationConstraint[];
+    categories?: PreparationCategory[];
+    submission?: PreparationSubmission;
+  };
 
-    constraints: z.array(preparationConstraintSchema).optional(),
+  sourceContent?: PreparationSourceContent[];
 
-    categories: z.array(preparationCategorySchema).optional(),
-
-    submission: preparationSubmissionSchema.optional(),
-  }),
-
-  sourceContent: z.array(preparationSourceContentSchema).optional(),
-
-  source: preparationSourceSchema,
-});
+  source: PreparationSource;
+}
