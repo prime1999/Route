@@ -107,10 +107,15 @@ Retrieves one supported opportunity by its canonical URL.
 
 - [Get Opportunity](./tools/get-opportunity.md)
 
+### `prepare_opportunity`
+
+Retrieves structured, source-backed preparation context for one supported opportunity.
+
+- [Prepare Opportunity](./tools/prepare-opportunity.md)
+
 Planned tools include:
 
 - `save_opportunity`
-- `prepare_opportunity`
 - `list_saved_opportunities`
 
 ---

@@ -1,6 +1,6 @@
-import type { Opportunity } from "./types.js";
+import type { Opportunity } from "../types.js";
 
-import { OpportunityProviderManager } from "./providers/manager.js";
+import { OpportunityProviderManager } from "../providers/manager.js";
 
 /**
  * Opportunity Service

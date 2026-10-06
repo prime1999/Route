@@ -1,5 +1,7 @@
 import type { Opportunity } from "../types.js";
 
+import type { OpportunityPreparationContext } from "../preparation/types.js";
+
 import type {
   OpportunityProvider,
   OpportunitySearchParams,
@@ -130,6 +132,30 @@ export class OpportunityProviderManager {
   }
 
   /**
+   * Resolve which registered provider owns a specific URL.
+   *
+   * This is shared by operations that work with a direct opportunity
+   * URL, such as:
+   *
+   * - getByUrl()
+   * - getPreparationContext()
+   *
+   * Keeping URL ownership in one method prevents those operations
+   * from implementing slightly different provider-selection logic.
+   *
+   * Providers are responsible for deciding whether they own a URL
+   * through canHandleUrl().
+   *
+   * The ownership check must remain local and deterministic.
+   * It should not perform a network request.
+   */
+  private resolveProviderByUrl(url: string): OpportunityProvider | null {
+    return (
+      this.providers.find((provider) => provider.canHandleUrl(url)) ?? null
+    );
+  }
+
+  /**
    * Search the selected providers.
    *
    * providerCursors allows Route to continue each provider
@@ -167,9 +193,8 @@ export class OpportunityProviderManager {
           ...params,
 
           /**
-           * Override the generic cursor with the
-           * cursor belonging specifically to this
-           * provider.
+           * Override the generic cursor with the cursor belonging
+           * specifically to this provider.
            */
           cursor: providerCursors[provider.name],
         });
@@ -220,48 +245,65 @@ export class OpportunityProviderManager {
    * - understand provider-specific URL formats
    * - parse provider-specific responses
    * - normalize external data
-   *
-   * Each provider owns those responsibilities through:
-   *
-   *   canHandleUrl() → URL ownership
-   *   getByUrl()     → retrieval + normalization
-   *
-   * This keeps the manager provider-agnostic and means that
-   * adding another provider later only requires implementing
-   * the OpportunityProvider interface and registering it.
    */
   async getByUrl(url: string): Promise<Opportunity | null> {
     /**
-     * Find the first provider that claims ownership of
-     * the supplied URL.
-     *
-     * canHandleUrl() should be a local ownership check.
-     * It should not make a network request.
+     * Resolve ownership through the shared URL resolver.
      */
-    const provider = this.providers.find((candidate) =>
-      candidate.canHandleUrl(url),
-    );
+    const provider = this.resolveProviderByUrl(url);
 
     /**
      * No registered provider recognizes this URL.
      *
      * Returning null keeps the Provider Manager neutral.
-     *
-     * The application/service layer will later decide how this
-     * condition should be represented to the MCP client.
+     * The application/service layer decides how this condition
+     * should be represented to the MCP client.
      */
     if (!provider) {
       return null;
     }
 
     /**
-     * Delegate the actual retrieval and normalization to the
-     * provider that owns the URL.
-     *
-     * The manager deliberately does not need to know whether
-     * the provider uses an API, HTML, JSON-LD, or another
-     * source-specific retrieval strategy.
+     * Delegate retrieval and normalization to the provider.
      */
     return provider.getByUrl(url);
+  }
+
+  /**
+   * Retrieve preparation context for a specific opportunity.
+   *
+   * The opportunity has already been resolved by the service layer.
+   * The manager's responsibility here is simply to determine which
+   * provider owns that opportunity URL and delegate preparation
+   * to that provider.
+   *
+   * This keeps preparation provider-agnostic at the manager level.
+   */
+  async getPreparationContext(
+    opportunity: Opportunity,
+  ): Promise<OpportunityPreparationContext | null> {
+    /**
+     * Resolve the provider from the opportunity's canonical URL.
+     */
+    const provider = this.resolveProviderByUrl(opportunity.url);
+
+    /**
+     * If no provider owns this URL, Route cannot safely determine
+     * how to retrieve preparation information.
+     */
+    if (!provider) {
+      return null;
+    }
+
+    /**
+     * Delegate provider-specific preparation retrieval.
+     *
+     * The provider is responsible for:
+     * - fetching source content
+     * - extracting provider-specific preparation information
+     * - preserving source content
+     * - returning the normalized preparation contract
+     */
+    return provider.getPreparationContext(opportunity);
   }
 }

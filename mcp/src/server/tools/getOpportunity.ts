@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { OpportunityService } from "../../opportunities/opportunityService.js";
+import { OpportunityService } from "../../opportunities/services/opportunityService.js";
 
 /**
  * Register the get_opportunity MCP tool.

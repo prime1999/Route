@@ -814,12 +814,17 @@ mcp/
     │   ├── mcpServer.ts
     │   └── tools/
     │       ├── healthCheck.ts
-    │       └── searchOpportunities.ts
+    │       ├── searchOpportunities.ts
+    │       ├── getOpportunity.ts
+    │       └── prepareOpportunity.ts
     │
     └── opportunities/
         ├── types.ts
         ├── schema.ts
-        ├── searchService.ts
+        ├── services/
+        │   ├── opportunityService.ts
+        │   ├── preparationService.ts
+        │   └── searchService.ts
         │
         └── providers/
             ├── types.ts
@@ -862,6 +867,9 @@ The following components are currently implemented and tested:
 - Result deduplication
 - `health_check`
 - `search_opportunities`
+- `get_opportunity`
+- `prepare_opportunity`
+- Preparation Service and provider preparation context
 - MCP end-to-end testing
 
 The architecture will continue to evolve as additional capabilities are implemented.
@@ -893,12 +901,10 @@ Potential future components include:
 
 Potential future capabilities include:
 
-- `get_opportunity`
 - `save_opportunity`
 - saved opportunity retrieval
 - user/session state
-- `prepare_opportunity`
-- opportunity preparation workflows
+- `get_opportunity_sub_links`
 - opportunity action workflows
 - additional opportunity categories
 - additional providers

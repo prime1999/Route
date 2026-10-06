@@ -1,13 +1,13 @@
 import { Buffer } from "node:buffer";
 
-import type { Opportunity, OpportunityType } from "./types.js";
+import type { Opportunity, OpportunityType } from "../types.js";
 
 import {
   OpportunityProviderManager,
   type ProviderCursors,
-} from "./providers/manager.js";
+} from "../providers/manager.js";
 
-import type { OpportunitySearchParams } from "./providers/types.js";
+import type { OpportunitySearchParams } from "../providers/types.js";
 
 /**
  * The Route-level cursor is intentionally different from the
