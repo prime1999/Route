@@ -113,9 +113,14 @@ Retrieves structured, source-backed preparation context for one supported opport
 
 - [Prepare Opportunity](./tools/prepare-opportunity.md)
 
+### `save_opportunity`
+
+Saves a supported opportunity reference for a Route agent identity.
+
+- [Save Opportunity](./tools/save-opportunity.md)
+
 Planned tools include:
 
-- `save_opportunity`
 - `list_saved_opportunities`
 
 ---
@@ -152,6 +157,8 @@ Currently implemented:
 - Opportunity Search Service
 - `get_opportunity`
 - Opportunity URL retrieval through the MCP client
+- `save_opportunity`
+- Opportunity persistence through the service and store layers
 - Provider-level pagination
 - Route-level cursor handling
 - MCP integration testing

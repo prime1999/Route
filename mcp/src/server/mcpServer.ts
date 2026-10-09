@@ -4,6 +4,7 @@ import { registerHealthCheckTool } from "./tools/healthCheck.js";
 import { registerSearchOpportunitiesTool } from "./tools/searchOpportunities.js";
 import { registerGetOpportunityTool } from "./tools/getOpportunity.js";
 import { registerPrepareOpportunityTool } from "./tools/prepareOpportunity.js";
+import { registerSaveOpportunityTool } from "./tools/saveOpportunity.js";
 
 /**
  * Create and configure the Route MCP server.
@@ -36,6 +37,7 @@ export function createMcpServer(): McpServer {
   registerHealthCheckTool(server);
   registerSearchOpportunitiesTool(server);
   registerGetOpportunityTool(server);
+  registerSaveOpportunityTool(server);
   registerPrepareOpportunityTool(server);
 
   return server;

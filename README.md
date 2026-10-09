@@ -270,14 +270,14 @@ The architecture is intentionally designed so additional opportunity categories 
 
 The planned core MCP interface is:
 
-| Tool                       | Purpose                                               | Status            |
-| -------------------------- | ----------------------------------------------------- | ----------------- |
-| `health_check`             | Verify the MCP server is running                      | ✅ Implemented    |
-| `search_opportunities`     | Search supported opportunity sources                  | ✅ Implemented    |
-| `get_opportunity`          | Retrieve detailed opportunity information             | 🚧 In development |
-| `save_opportunity`         | Save an opportunity                                   | 🚧 Planned        |
-| `prepare_opportunity`      | Provide opportunity context for preparation workflows | 🚧 Planned        |
-| `list_saved_opportunities` | Retrieve saved opportunities                          | 🔮 Optional       |
+| Tool                       | Purpose                                               | Status         |
+| -------------------------- | ----------------------------------------------------- | -------------- |
+| `health_check`             | Verify the MCP server is running                      | ✅ Implemented |
+| `search_opportunities`     | Search supported opportunity sources                  | ✅ Implemented |
+| `get_opportunity`          | Retrieve detailed opportunity information             | ✅ Implemented |
+| `save_opportunity`         | Save an opportunity                                   | ✅ Implemented |
+| `prepare_opportunity`      | Provide opportunity context for preparation workflows | ✅ Implemented |
+| `list_saved_opportunities` | Retrieve saved opportunities                          | 🔮 Optional    |
 
 As Route evolves, additional tools may support opportunity-specific actions and tracking workflows.
 
@@ -388,16 +388,17 @@ The MCP foundation, Streamable HTTP transport, provider architecture, Remote OK 
 - Provider manager
 - Opportunity search service
 - Provider-level pagination
+- `health_check`
+- `search_opportunities`
+- `get_opportunity`
+- `save_opportunity` registration and persistence flow
 
 ### In development / next
 
-- `search_opportunities`
-- `get_opportunity`
+- MCP-level integration coverage for `save_opportunity`
 
 ### Planned
 
-- DynamoDB persistence
-- `save_opportunity`
 - Saved opportunity retrieval
 - User/session state
 - AWS Strands Agents SDK integration
@@ -439,7 +440,7 @@ Features marked as planned are not yet implemented.
 ### Phase 3 — User State
 
 - Configure DynamoDB
-- Implement `save_opportunity`
+- Validate the `save_opportunity` MCP contract
 - Implement saved opportunity retrieval
 - Add user/session state
 

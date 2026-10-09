@@ -657,54 +657,55 @@ The current domain model, Provider Manager, and Search Service should support ex
 
 ---
 
-# ADR-014 — Do Not Add DynamoDB Before the Core MCP Flow Is Stable
+# ADR-014 — Persist Lightweight Opportunity References and Agent Relationships
 
 **Status:** Accepted
 
 ## Decision
 
-DynamoDB persistence is intentionally deferred until the core MCP opportunity flow has been implemented and tested.
+Route uses DynamoDB for the implemented `save_opportunity` persistence flow.
 
-The current priority is:
+`ROUTE_Opportunities` stores one lightweight canonical opportunity reference per `opportunityId`. `ROUTE_AgentOpportunities` stores agent-opportunity relationships using `agentId` as the partition key and `opportunityId` as the sort key.
+
+The full normalized opportunity is not duplicated in these tables. Providers remain responsible for retrieving and normalizing opportunity details. The same canonical opportunity can be associated with multiple agent IDs while retaining one canonical opportunity reference.
+
+Saving the same opportunity under the same agent ID is idempotent. The store conditionally creates the relationship; a duplicate returns the existing relationship with `alreadySaved: true` and its original `savedAt` value.
+
+Route accepts an existing `agentId`, or generates one when the current caller supplies an `agentName` without an ID. The returned ID is the stable identity the consuming application must retain and reuse. Route does not require an agent registry, manage the caller's agent lifecycle, infer identity when the ID is omitted, authenticate the caller, or establish caller ownership.
+
+The implemented service flow is:
 
 ```text
-MCP
+MCP save_opportunity
 
  ↓
 
-Search
+OpportunityService
 
  ↓
 
-Retrieve
+Provider Manager
 
  ↓
 
-Save design
+OpportunityStore
 
  ↓
 
-Persistence
+DynamoDB
 ```
-
-rather than introducing persistence before the opportunity infrastructure is stable.
 
 ## Why
 
-Persistence is important for capabilities such as:
-
-- saved opportunities
-- user state
-- tracking
-- future personalization
-
-However, adding it too early would introduce infrastructure complexity before the core opportunity flow has been validated.
+Keeping canonical opportunity data separate from agent relationships avoids duplicating provider-owned opportunity details and permits one opportunity to be saved by multiple agent identities.
 
 ## Consequence
 
-The current MVP can operate without DynamoDB.
+Route provides saved relationships and lightweight references. The consuming application decides how to retain the returned agent ID, organize saved opportunities, and present them to users.
 
-DynamoDB will be introduced when the `save_opportunity` lifecycle requires persistent state.
+The current implementation depends on DynamoDB for the default store. Persistence failures propagate through the service and MCP tool rather than being represented as successful saves.
+
+Service-level and store-level tests verify saving, duplicate detection, and relationship retrieval. The existing MCP client integration test does not yet execute `save_opportunity`.
 
 ---
 

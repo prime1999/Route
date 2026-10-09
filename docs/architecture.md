@@ -166,6 +166,7 @@ src/
         ├── healthCheck.ts
         ├── searchOpportunities.ts
         └── getOpportunity.ts
+        ├── saveOpportunity.ts
 ```
 
 The MCP server is responsible for assembling the tools:
@@ -177,7 +178,11 @@ mcpServer.ts
      │
     ├── registerSearchOpportunitiesTool()
     │
-    └── registerGetOpportunityTool()
+    ├── registerGetOpportunityTool()
+    │
+    ├── registerSaveOpportunityTool()
+    │
+    └── registerPrepareOpportunityTool()
 ```
 
 This approach makes tools easier to:
@@ -869,6 +874,8 @@ The following components are currently implemented and tested:
 - `search_opportunities`
 - `get_opportunity`
 - `prepare_opportunity`
+- `save_opportunity`
+- Opportunity Store and DynamoDB persistence
 - Preparation Service and provider preparation context
 - MCP end-to-end testing
 
@@ -901,7 +908,6 @@ Potential future components include:
 
 Potential future capabilities include:
 
-- `save_opportunity`
 - saved opportunity retrieval
 - user/session state
 - `get_opportunity_sub_links`
@@ -963,7 +969,7 @@ The most important boundary in Route is:
 │ Search                                  │
 │ Retrieval                               │
 │ Pagination                              │
-│ Persistent opportunity state (future)   │
+│ Persistent opportunity state             │
 │ Opportunity capabilities (future)       │
 └───────────────────┬─────────────────────┘
                     │
