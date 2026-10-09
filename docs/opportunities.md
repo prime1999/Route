@@ -1149,14 +1149,15 @@ Currently implemented:
 - [x] MCP `get_opportunity` integration
 - [x] Opportunity preparation context schema and runtime validation
 - [x] `prepare_opportunity` MCP integration
+- [x] `save_opportunity` registration and service/store persistence
+- [x] Lightweight opportunity and agent-opportunity DynamoDB persistence
 - [x] Remote OK preparation context
 - [x] Devpost preparation context
 
 Not yet implemented:
 
 - [x] Provider Manager URL ownership resolution
-- [ ] Saved opportunities
-- [ ] Persistent opportunity state
+- [ ] `list_saved_opportunities` MCP tool
 - [ ] Opportunity tracking
 - [ ] Additional opportunity types
 

@@ -181,6 +181,7 @@ src/
         ├── healthCheck.ts
         ├── searchOpportunities.ts
         ├── getOpportunity.ts
+        ├── saveOpportunity.ts
         └── prepareOpportunity.ts
 ```
 
@@ -194,6 +195,8 @@ registerHealthCheckTool(server)
 registerSearchOpportunitiesTool(server)
 
 registerGetOpportunityTool(server)
+
+registerSaveOpportunityTool(server)
 
 registerPrepareOpportunityTool(server)
 ```
@@ -241,7 +244,7 @@ This means invalid tool input can be rejected at the MCP tool boundary rather th
 
 # 8. Current MCP Tools
 
-The current MCP server exposes three tools.
+The current MCP server exposes five tools.
 
 ## `health_check`
 
@@ -316,6 +319,32 @@ The result is returned as a normalized Route `Opportunity` serialized as JSON in
 Detailed behavior is documented separately in:
 
 [Get Opportunity](./tools/get-opportunity.md)
+
+---
+
+## `save_opportunity`
+
+The `save_opportunity` tool retrieves a supported opportunity by URL and persists a lightweight canonical reference plus an agent-opportunity relationship.
+
+Current input:
+
+```ts
+{
+        url: string;
+        agentId?: string;
+        agentName?: string;
+}
+```
+
+The current schema requires exactly one of `agentId` or `agentName`. An existing `agentId` is reused; when `agentName` is provided without an ID, Route generates and returns a new `agentId`. The current implementation does not accept a URL with neither identity field.
+
+The response contains `agentId`, `opportunityId`, `url`, `savedAt`, and `alreadySaved`. Duplicate saves for the same agent and opportunity return the existing relationship. Unsupported URLs return a controlled explanatory response; persistence failures propagate as tool errors.
+
+Detailed behavior is documented separately in:
+
+[Save Opportunity](./tools/save-opportunity.md)
+
+The tool is registered and its service/store behavior has been tested, but the existing MCP client integration test does not yet execute `save_opportunity`.
 
 ---
 
@@ -560,6 +589,7 @@ The current implementation includes:
 - `health_check`
 - `search_opportunities`
 - `get_opportunity`
+- `save_opportunity`
 - `prepare_opportunity`
 - End-to-end MCP testing
 
@@ -574,7 +604,6 @@ Additional tools will be added as their underlying functionality is implemented 
 Planned capabilities include:
 
 ```text id="w9b6pj"
-save_opportunity
 list_saved_opportunities
 ```
 
