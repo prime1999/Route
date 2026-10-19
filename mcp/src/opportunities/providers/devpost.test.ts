@@ -180,25 +180,36 @@ async function main() {
     }
 
     /**
-     * The existing normalized description should be
-     * preserved as source content.
+     * The overview page must remain the first source entry.
+     *
+     * sourceContent holds one entry per retrieved page, and the
+     * overview entry contains the page text rather than only the
+     * extracted description.
      */
     if (retrievedHackathon.description) {
       const sourceContent = preparationContext.sourceContent;
 
       if (!sourceContent || sourceContent.length === 0) {
+        throw new Error("Expected sourceContent to contain the overview page.");
+      }
+
+      if (sourceContent[0]?.url !== retrievedHackathon.url) {
         throw new Error(
-          "Expected sourceContent to contain the opportunity description.",
+          "Expected the overview page to be the first source entry.",
         );
       }
 
-      if (sourceContent[0]?.content !== retrievedHackathon.description) {
-        throw new Error(
-          "Preparation source content does not preserve the opportunity description.",
-        );
+      if (!sourceContent[0]?.content) {
+        throw new Error("Overview source content is empty.");
       }
 
-      console.log("✓ Opportunity description preserved in sourceContent.");
+      console.log(
+        `✓ Overview preserved as the first of ${sourceContent.length} source pages.`,
+      );
+
+      for (const sourcePage of sourceContent) {
+        console.log(`  - ${sourcePage.title} | ${sourcePage.url}`);
+      }
     }
 
     /**
