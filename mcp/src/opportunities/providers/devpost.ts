@@ -1,38 +1,28 @@
 /**
  * Devpost opportunity provider.
  *
- * This provider is responsible for:
- *
- * 1. Discovering hackathons through Devpost's public API.
- * 2. Retrieving a specific hackathon by its URL.
- * 3. Normalizing Devpost data into Route's shared Opportunity model.
- * 4. Retrieving preparation context from the actual Devpost page.
+ * Responsibilities:
+ * 1. Discover hackathons through Devpost's public API.
+ * 2. Retrieve a specific hackathon by URL.
+ * 3. Normalize Devpost data into ROUTE's Opportunity model.
+ * 4. Extract structured preparation facts from retrieved pages.
+ * 5. Discover and retrieve relevant pages linked from a hackathon.
+ * 6. Preserve each successfully retrieved page as separate source content.
  *
  * Architectural boundary:
- *
- * Route is an opportunity infrastructure layer, not an AI agent.
- * Therefore this provider does NOT:
- *
- * - summarize opportunities with an LLM
- * - decide whether a user should apply
- * - generate project ideas
- * - write applications
- * - determine personalized eligibility
- * - automatically submit anything
- *
- * Instead, it retrieves authoritative source information and exposes
- * useful structured facts so a connected AI agent can reason over them.
+ * ROUTE retrieves and organizes source-backed opportunity information.
+ * It does not summarize with an LLM, generate project ideas, determine
+ * personalized eligibility, write applications, or submit entries.
  */
 
 import * as cheerio from "cheerio";
-import type { AnyNode, Element } from "domhandler";
-
 import type { Opportunity, OpportunityType } from "../types.js";
 
 import type {
   OpportunityPreparationContext,
   PreparationEligibility,
   PreparationRequirement,
+  PreparationSourceContent,
 } from "../preparation/types.js";
 
 import type {
@@ -41,32 +31,59 @@ import type {
   OpportunitySearchParams,
 } from "./types.js";
 
-/**
- * Devpost's public hackathon discovery endpoint.
- *
- * This endpoint is useful for discovery/search, while the individual
- * hackathon page is used for richer information such as requirements
- * and submission instructions.
- */
+/** Devpost's public hackathon discovery endpoint. */
 const DEVPOST_API_URL = "https://devpost.com/api/hackathons";
 
-/**
- * Default number of opportunities returned from one provider request.
- */
+/** Maximum number of results returned from one Devpost page. */
 const DEFAULT_PAGE_SIZE = 9;
 
-/**
- * Prevents a broad keyword search from requesting an unbounded number
- * of Devpost API pages.
- */
+/** Prevent unbounded API pagination during keyword searches. */
 const MAX_PAGES_PER_SEARCH = 10;
 
 /**
- * Shape of the fields we use from Devpost's public API.
+ * Bound preparation retrieval so a page with many links cannot trigger
+ * unlimited network requests.
  *
- * Devpost exposes additional fields, but Route only needs the fields
- * required to normalize a hackathon into the shared Opportunity model.
+ * This is the maximum number of pages requested, including the overview
+ * page and any requests that fail. Failed requests count against the
+ * limit so an unreliable site cannot cause more requests than this.
  */
+const MAX_PREPARATION_PAGES = 12;
+
+/** Retrieve at most three discovered pages concurrently. */
+const PREPARATION_FETCH_CONCURRENCY = 3;
+
+/**
+ * Maximum time to wait for one linked page.
+ *
+ * Without a limit, one unresponsive page would stall its whole batch,
+ * and therefore the entire preparation request, even though the overview
+ * has already been retrieved.
+ */
+const PREPARATION_PAGE_TIMEOUT_MS = 10_000;
+
+/**
+ * These words help identify links likely to contain useful opportunity
+ * preparation information.
+ *
+ * Both visible link text and URL paths are checked. We do not construct
+ * Devpost subpage URLs or assume a particular URL structure.
+ */
+const RELEVANT_PAGE_LINK_PATTERN =
+  /\b(rules?|resources?|faqs?|frequently asked questions?|schedule|dates?|updates?|tracks?|prizes?|awards?|judging|judges?|criteria|submission|submissions|eligibility|requirements?|challenge|tips?)\b/i;
+
+/**
+ * Paths that must never be crawled, even when their link text or path
+ * looks relevant.
+ *
+ * These pages require an account, change state, or manage a person's own
+ * submission instead of describing the opportunity. A path is excluded
+ * only when a whole path segment matches, so a page such as
+ * /updates/46538-strong-submission-tips is not affected.
+ */
+const EXCLUDED_PAGE_PATH_PATTERN =
+  /(^|\/)(login|logout|sign[-_]?in|sign[-_]?up|register|users?|accounts?|oauth|settings|submit-to|manage)(\/|$)/i;
+
 interface DevpostHackathon {
   title?: unknown;
   displayed_location?: unknown;
@@ -79,26 +96,18 @@ interface DevpostHackathon {
   url?: unknown;
 }
 
-/**
- * Shape of the top-level Devpost API response.
- */
 interface DevpostApiResponse {
   hackathons?: unknown;
 }
 
-/**
- * Type guard for DOM elements.
- *
- * Cheerio works with AnyNode, while several of our DOM helpers need
- * Element-specific properties. Keeping this check here prevents us
- * from making unsafe assumptions about arbitrary DOM nodes.
- */
-function isElement(node: AnyNode): node is Element {
-  return node.type === "tag";
+interface RetrievedPage {
+  url: string;
+  title: string;
+  html: string;
 }
 
 /**
- * Converts arbitrary unknown values into strings safely.
+ * Convert an unknown value to a normalized, non-empty string.
  */
 function asString(value: unknown): string | undefined {
   if (typeof value !== "string") {
@@ -111,11 +120,10 @@ function asString(value: unknown): string | undefined {
 }
 
 /**
- * Normalizes an opportunity URL.
+ * Normalize a Devpost URL.
  *
- * Devpost can expose URLs with trailing slashes or slightly different
- * forms. Route keeps the canonical HTTPS URL so provider ownership
- * remains deterministic.
+ * Remove fragments and unnecessary trailing slashes to reduce duplicate
+ * URL variants. The caller is responsible for validating the hostname.
  */
 function normalizeUrl(url: string): string {
   const parsed = new URL(url);
@@ -131,15 +139,15 @@ function normalizeUrl(url: string): string {
 }
 
 /**
- * Cleans HTML into readable plain text.
+ * Extract readable text from HTML.
  *
- * This is intentionally conservative. Route wants to preserve source
- * information rather than aggressively summarize or rewrite it.
+ * This helper is used as a fallback when a page does not expose a known
+ * content container.
  */
 function cleanHtml(html: string): string {
   const $ = cheerio.load(html);
 
-  $("script, style, iframe, noscript").remove();
+  $("script, style, iframe, noscript, svg").remove();
 
   return $("body")
     .text()
@@ -150,8 +158,7 @@ function cleanHtml(html: string): string {
 }
 
 /**
- * Determines whether an unknown value resembles a Devpost API
- * hackathon object.
+ * Check whether a value resembles an object from the Devpost API.
  */
 function isDevpostHackathon(value: unknown): value is DevpostHackathon {
   if (!value || typeof value !== "object") {
@@ -166,7 +173,7 @@ function isDevpostHackathon(value: unknown): value is DevpostHackathon {
 }
 
 /**
- * Converts a Devpost API hackathon into Route's normalized model.
+ * Normalize a Devpost API item into ROUTE's shared Opportunity model.
  */
 function normalizeHackathon(hackathon: DevpostHackathon): Opportunity | null {
   const title = asString(hackathon.title);
@@ -176,10 +183,15 @@ function normalizeHackathon(hackathon: DevpostHackathon): Opportunity | null {
     return null;
   }
 
-  const url = normalizeUrl(rawUrl);
+  let url: string;
+
+  try {
+    url = normalizeUrl(rawUrl);
+  } catch {
+    return null;
+  }
 
   const location = asString(hackathon.displayed_location) ?? "online";
-
   const prize = asString(hackathon.prize_amount);
 
   const themes = Array.isArray(hackathon.themes)
@@ -188,6 +200,10 @@ function normalizeHackathon(hackathon: DevpostHackathon): Opportunity | null {
         .map((theme) => theme.trim())
         .filter(Boolean)
     : [];
+
+  const openState = asString(hackathon.open_state);
+  const timeLeft = asString(hackathon.time_left_to_submission);
+  const submissionPeriod = asString(hackathon.submission_period_dates);
 
   return {
     id: `devpost:${url}`,
@@ -203,31 +219,18 @@ function normalizeHackathon(hackathon: DevpostHackathon): Opportunity | null {
     ...(prize ? { prize } : {}),
     metadata: {
       themes,
-      ...(asString(hackathon.open_state)
-        ? { openState: asString(hackathon.open_state) }
-        : {}),
-      ...(asString(hackathon.time_left_to_submission)
-        ? {
-            timeLeftToSubmission: asString(hackathon.time_left_to_submission),
-          }
-        : {}),
-      ...(asString(hackathon.submission_period_dates)
-        ? {
-            submissionPeriodDates: asString(hackathon.submission_period_dates),
-          }
-        : {}),
+      ...(openState ? { openState } : {}),
+      ...(timeLeft ? { timeLeftToSubmission: timeLeft } : {}),
+      ...(submissionPeriod ? { submissionPeriodDates: submissionPeriod } : {}),
       ...(typeof hackathon.registrations_count === "number"
-        ? {
-            registrationsCount: hackathon.registrations_count,
-          }
+        ? { registrationsCount: hackathon.registrations_count }
         : {}),
     },
   };
 }
 
 /**
- * Performs case-insensitive keyword matching against the fields
- * available from the Devpost discovery response.
+ * Match a keyword against fields available in the discovery response.
  */
 function matchesKeyword(
   hackathon: DevpostHackathon,
@@ -253,17 +256,9 @@ function matchesKeyword(
 }
 
 /**
- * Parses Route's provider cursor.
+ * Parse ROUTE's Devpost pagination cursor.
  *
- * Example:
- *
- *   remote:5
- *
- * is not used here because this provider owns the Devpost namespace.
- *
- * Accepted Devpost cursor:
- *
- *   devpost:10
+ * Example: devpost:18
  */
 function parseCursor(cursor?: string): number {
   if (!cursor) {
@@ -282,23 +277,17 @@ function parseCursor(cursor?: string): number {
 }
 
 /**
- * Extracts the main challenge description.
- *
- * Devpost's #challenge-description contains the long-form overview
- * content. It does NOT necessarily contain every preparation-related
- * section on the page, which is why preparation extraction separately
- * works against the complete page.
+ * Extract the hackathon overview/description when available.
  */
 function extractChallengeDescription(html: string): string {
   const $ = cheerio.load(html);
-
   const description = $("#challenge-description").first();
 
   if (description.length === 0) {
     return cleanHtml(html);
   }
 
-  description.find("script, style, iframe, noscript").remove();
+  description.find("script, style, iframe, noscript, svg").remove();
 
   return description
     .text()
@@ -309,196 +298,434 @@ function extractChallengeDescription(html: string): string {
 }
 
 /**
- * Returns the heading level of a heading element.
+ * Extract a human-readable title for a retrieved page.
  */
-function getHeadingLevel(element: Element): number {
-  const tagName = String(
-    cheerio.load("")(element).prop("tagName") ?? "",
-  ).toLowerCase();
+function extractPageTitle(html: string, fallback: string): string {
+  const $ = cheerio.load(html);
 
-  if (!/^h[1-6]$/.test(tagName)) {
-    return 6;
-  }
+  const heading = $("h1").first().text().replace(/\s+/g, " ").trim();
+  const documentTitle = $("title").first().text().replace(/\s+/g, " ").trim();
 
-  return Number(tagName.substring(1));
+  return heading || documentTitle || fallback;
 }
 
 /**
- * Finds a semantic heading whose text matches the requested value.
+ * Extract the main available text from one page.
  *
- * The comparison is normalized so small whitespace differences in
- * Devpost's HTML do not prevent section discovery.
- */
-function findHeading(
-  $: cheerio.CheerioAPI,
-  headingText: string,
-): Element | null {
-  const normalizedTarget = headingText
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-
-  let result: Element | null = null;
-
-  $("h1, h2, h3, h4, h5, h6").each((_, node) => {
-    if (result || !isElement(node)) {
-      return;
-    }
-
-    const text = $(node).text().replace(/\s+/g, " ").trim().toLowerCase();
-
-    if (text === normalizedTarget) {
-      result = node;
-    }
-  });
-
-  return result;
-}
-
-/**
- * Returns all elements in document order.
+ * We prefer semantic main content, but fall back to the body when the
+ * page does not provide a main-content container.
  *
- * This lets us inspect content after a heading without assuming that
- * Devpost places the section content as direct siblings.
+ * This preserves source text rather than generating a summary.
  */
-function getOrderedElements($: cheerio.CheerioAPI): Element[] {
-  return $("body *").toArray().filter(isElement);
+function extractPageText(html: string): string {
+  const $ = cheerio.load(html);
+
+  $("script, style, iframe, noscript, svg").remove();
+
+  const main = $("main, [role='main']").first();
+  const contentRoot = main.length > 0 ? main : $("body").first();
+
+  contentRoot
+    .find("nav, footer, aside, script, style, iframe, noscript, svg")
+    .remove();
+
+  return contentRoot
+    .text()
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
 }
 
 /**
- * Returns the next element after a given element in document order.
+ * Preserve a retrieved page as its own source entry.
+ *
+ * A page with no extractable text is omitted instead of being reported
+ * as retrieved content.
  */
-function getNextElementInDocumentOrder(
-  $: cheerio.CheerioAPI,
-  element: Element,
-): Element | null {
-  const elements = getOrderedElements($);
+function createSourceContent(
+  page: RetrievedPage,
+  opportunityTitle: string,
+): PreparationSourceContent | null {
+  const content = extractPageText(page.html);
 
-  const index = elements.indexOf(element);
-
-  if (index === -1 || index + 1 >= elements.length) {
+  if (!content) {
     return null;
   }
 
-  return elements[index + 1] ?? null;
+  return {
+    title: page.title || `${opportunityTitle} — Source page`,
+    content,
+    url: page.url,
+  };
 }
 
 /**
- * Extracts list-item content from a named section.
+ * Discover relevant links from a page.
  *
- * This helper intentionally focuses on <li> elements instead of
- * collecting arbitrary text. Devpost pages often contain UI elements
- * such as calendar controls inside otherwise useful sections.
+ * Safety and scope:
+ * - Only HTTPS links are accepted.
+ * - Links must use the exact hostname of the hackathon page.
+ * - Links must match relevant preparation-related text or URL patterns.
+ * - The current page and duplicate URLs are excluded.
  *
- * That distinction prevents values such as:
+ * We deliberately do not crawl unrelated external sites or other
+ * Devpost hackathons.
+ */
+function discoverRelevantPageLinks(html: string, pageUrl: string): string[] {
+  const $ = cheerio.load(html);
+  const baseUrl = new URL(pageUrl);
+  const discovered = new Set<string>();
+
+  $("a[href]").each((_, element) => {
+    const anchor = $(element);
+    const href = anchor.attr("href");
+
+    if (!href) {
+      return;
+    }
+
+    const linkText = anchor.text().replace(/\s+/g, " ").trim();
+
+    try {
+      const resolved = new URL(href, baseUrl);
+
+      // Avoid external pages, HTTP links, and other Devpost subdomains.
+      if (
+        resolved.protocol !== "https:" ||
+        resolved.hostname !== baseUrl.hostname
+      ) {
+        return;
+      }
+
+      // Never crawl account, registration, or submission-management pages.
+      if (EXCLUDED_PAGE_PATH_PATTERN.test(resolved.pathname)) {
+        return;
+      }
+
+      // Ignore links that do not appear relevant to preparation.
+      //
+      // Only the path is checked, not the query string, so form or
+      // tracking parameters cannot make an unrelated link look relevant.
+      if (
+        !RELEVANT_PAGE_LINK_PATTERN.test(linkText) &&
+        !RELEVANT_PAGE_LINK_PATTERN.test(resolved.pathname)
+      ) {
+        return;
+      }
+
+      // Remove fragments so multiple links to the same section are deduped.
+      resolved.hash = "";
+
+      const normalized = normalizeUrl(resolved.toString());
+
+      if (normalized === normalizeUrl(pageUrl)) {
+        return;
+      }
+
+      discovered.add(normalized);
+    } catch {
+      // A malformed link should not fail the entire preparation request.
+    }
+  });
+
+  return [...discovered];
+}
+
+/**
+ * Fetch one page.
  *
- *   View schedule
- *   Apple
- *   Google
- *   Outlook
+ * A non-success response, a non-HTML response, or a redirect away from
+ * the hackathon host is treated as a page-level failure. The caller
+ * catches network errors and timeouts and continues with other
+ * discovered pages.
+ */
+async function fetchPage(url: string): Promise<RetrievedPage | null> {
+  // Do not send an Accept header. Devpost answers 403 to requests that
+  // include one (verified for the overview, /rules and /resources), while
+  // the same request without it succeeds. This matches how the overview
+  // page is fetched.
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(PREPARATION_PAGE_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  // Skip PDFs and other downloads. A missing header is accepted because
+  // some servers omit it.
+  const contentType = response.headers.get("content-type");
+
+  if (contentType && !/html/i.test(contentType)) {
+    return null;
+  }
+
+  // fetch() follows redirects. Record the URL that actually served the
+  // content, and reject a redirect to another host (for example a login
+  // page) or an excluded path, so such a page is never reported as the
+  // page that was requested.
+  let finalUrl = url;
+
+  if (response.url) {
+    const final = new URL(response.url);
+
+    if (
+      final.protocol !== "https:" ||
+      final.hostname !== new URL(url).hostname ||
+      EXCLUDED_PAGE_PATH_PATTERN.test(final.pathname)
+    ) {
+      return null;
+    }
+
+    finalUrl = normalizeUrl(response.url);
+  }
+
+  const html = await response.text();
+
+  return {
+    url: finalUrl,
+    title: extractPageTitle(html, finalUrl),
+    html,
+  };
+}
+
+/**
+ * Fetch relevant linked pages, with bounded concurrency.
  *
- * from being interpreted as eligibility information.
+ * The first page is the overview, which has already been retrieved by
+ * getPreparationContext().
+ *
+ * This uses a small breadth-first crawl:
+ * 1. Discover relevant links on the overview.
+ * 2. Fetch a limited batch.
+ * 3. Discover relevant links on successfully retrieved pages.
+ * 4. Continue until no links remain or the page limit is reached.
+ *
+ * Failed pages are skipped; they do not discard successful pages.
+ *
+ * The page limit counts every request made, including the overview and
+ * failed requests.
+ */
+async function fetchLinkedPreparationPages(
+  overview: RetrievedPage,
+): Promise<RetrievedPage[]> {
+  const pages: RetrievedPage[] = [overview];
+  const visited = new Set<string>([normalizeUrl(overview.url)]);
+  const retrieved = new Set<string>([normalizeUrl(overview.url)]);
+  let pending = discoverRelevantPageLinks(overview.html, overview.url);
+
+  // Requests made so far, starting with the overview.
+  let attempted = 1;
+
+  while (pending.length > 0 && attempted < MAX_PREPARATION_PAGES) {
+    // Keep only URLs not already fetched or queued.
+    const batch: string[] = [];
+
+    for (const url of pending) {
+      const normalized = normalizeUrl(url);
+
+      if (visited.has(normalized)) {
+        continue;
+      }
+
+      visited.add(normalized);
+      batch.push(normalized);
+
+      if (
+        batch.length >= PREPARATION_FETCH_CONCURRENCY ||
+        attempted + batch.length >= MAX_PREPARATION_PAGES
+      ) {
+        break;
+      }
+    }
+
+    // Remove this batch from the queue. Any excess links remain for later.
+    const batchSet = new Set(batch);
+    pending = pending.filter((url) => !batchSet.has(normalizeUrl(url)));
+
+    if (batch.length === 0) {
+      break;
+    }
+
+    attempted += batch.length;
+
+    const results = await Promise.all(
+      batch.map(async (url) => {
+        try {
+          return await fetchPage(url);
+        } catch {
+          // Keep processing other pages if one fetch fails.
+          return null;
+        }
+      }),
+    );
+
+    const retrievedPages = results.filter(
+      (page): page is RetrievedPage => page !== null,
+    );
+
+    for (const page of retrievedPages) {
+      // A redirect can land on a page that was already retrieved.
+      const finalUrl = normalizeUrl(page.url);
+
+      if (retrieved.has(finalUrl)) {
+        continue;
+      }
+
+      retrieved.add(finalUrl);
+      visited.add(finalUrl);
+      pages.push(page);
+
+      // Some useful pages link to more specific rules or submission tips.
+      const additionalLinks = discoverRelevantPageLinks(page.html, page.url);
+
+      for (const link of additionalLinks) {
+        const normalized = normalizeUrl(link);
+
+        if (!visited.has(normalized)) {
+          pending.push(normalized);
+        }
+      }
+    }
+  }
+
+  return pages;
+}
+
+/**
+ * The parts of a parsed DOM node that heading detection needs.
+ *
+ * Cheerio 1.x does not export its node types, so describe the minimum
+ * shape here instead of importing from its transitive dependency.
+ */
+interface HeadingNodeLike {
+  type: string;
+  name?: string;
+}
+
+/**
+ * Return the level of an HTML heading node.
+ */
+function getHeadingLevel(node: HeadingNodeLike): number {
+  if (node.type !== "tag") {
+    return 6;
+  }
+
+  const match = /^h([1-6])$/i.exec(node.name ?? "");
+
+  return match ? Number(match[1]) : 6;
+}
+
+/**
+ * Find a heading by exact normalized text.
+ */
+function findHeading($: cheerio.CheerioAPI, headingText: string) {
+  const target = headingText.replace(/\s+/g, " ").trim().toLowerCase();
+
+  return $("h1, h2, h3, h4, h5, h6")
+    .filter((_, node) => {
+      return (
+        $(node).text().replace(/\s+/g, " ").trim().toLowerCase() === target
+      );
+    })
+    .first();
+}
+
+/**
+ * Extract list items following a known heading.
+ *
+ * This supports common heading/sibling layouts. If a site uses a
+ * different layout, sourceContent still preserves the retrieved text.
  */
 function extractSectionListItems(
   $: cheerio.CheerioAPI,
   headingText: string,
 ): string[] {
   const heading = findHeading($, headingText);
+  const headingNode = heading.get(0);
 
-  if (!heading) {
+  if (!headingNode) {
     return [];
   }
 
-  const headingLevel = getHeadingLevel(heading);
+  const headingLevel = getHeadingLevel(headingNode);
   const results: string[] = [];
 
-  let current: Element | null = heading;
+  let current = heading.next();
 
-  while (current) {
-    current = getNextElementInDocumentOrder($, current);
+  while (current.length > 0) {
+    const currentNode = current.get(0);
 
-    if (!current) {
+    if (!currentNode) {
       break;
     }
 
-    const tagName = String($(current).prop("tagName") ?? "").toLowerCase();
+    const tagName =
+      currentNode.type === "tag" ? currentNode.name.toLowerCase() : "";
 
-    /*
-     * Stop when another heading at the same or higher level is found.
-     * This prevents one section from consuming the rest of the page.
-     */
     if (/^h[1-6]$/.test(tagName)) {
-      const currentLevel = Number(tagName.substring(1));
-
-      if (currentLevel <= headingLevel) {
+      if (getHeadingLevel(currentNode) <= headingLevel) {
         break;
       }
     }
 
-    if (tagName !== "li") {
-      continue;
-    }
+    current
+      .find("li")
+      .addBack("li")
+      .each((_, item) => {
+        const text = $(item).text().replace(/\s+/g, " ").trim();
 
-    const text = $(current).text().replace(/\s+/g, " ").trim();
+        if (text && !/^(view schedule|apple|google|outlook)$/i.test(text)) {
+          results.push(text);
+        }
+      });
 
-    if (!text) {
-      continue;
-    }
-
-    /*
-     * Devpost sometimes places calendar controls in the same DOM
-     * region as participation information. These are UI controls,
-     * not opportunity facts.
-     */
-    if (/^(view schedule|apple|google|outlook)$/i.test(text)) {
-      continue;
-    }
-
-    results.push(text);
+    current = current.next();
   }
 
   return [...new Set(results)];
 }
 
 /**
- * Extracts the first useful date visible on the page.
+ * Extract a deadline only when the page explicitly associates a date
+ * with a submission or deadline label.
  *
- * The Opportunity model already carries the normalized deadline.
- * This helper exists so prepare_opportunity can expose the deadline
- * again as preparation context.
+ * The returned value keeps the source's wording. We do not infer a
+ * time or timezone that the matched text does not contain.
  */
-function extractFirstDate($: cheerio.CheerioAPI): string | undefined {
+function extractDeadline($: cheerio.CheerioAPI): string | undefined {
   const bodyText = $("body").first().text().replace(/\s+/g, " ").trim();
 
-  /*
-   * Prefer the competition's explicit deadline language rather than
-   * blindly taking the first date appearing on the page.
-   */
-  const deadlineMatch = bodyText.match(
-    /(?:final projects are due|final submissions are due)[^.!?]{0,160}?([A-Z][a-z]{2,9}\s+\d{1,2},\s+\d{4})/i,
-  );
+  const date = "([A-Z][a-z]{2,9}\\s+\\d{1,2},\\s+\\d{4})";
 
-  if (deadlineMatch?.[1]) {
-    return deadlineMatch[1];
+  const patterns = [
+    new RegExp(
+      `(?:final projects are due|final submissions are due|submission deadline|applications close|submissions close|deadline)\\s*(?:is|:|-)?\\s*${date}`,
+      "i",
+    ),
+    new RegExp(
+      `${date}\\s*(?:is the )?(?:submission deadline|final submission deadline)`,
+      "i",
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = bodyText.match(pattern);
+
+    if (match?.[1]) {
+      return match[1].trim();
+    }
   }
 
-  /*
-   * Fallback for pages that don't expose the deadline using the
-   * expected wording.
-   */
-  const genericDateMatch = bodyText.match(
-    /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b/i,
-  );
-
-  return genericDateMatch?.[0];
+  return undefined;
 }
 
 /**
- * Extracts the submission URL from the page.
+ * Find a submission-related destination.
  *
- * This does not mean Route can submit on the user's behalf.
- * It simply preserves the provider's submission destination as
- * context for a connected agent and ultimately the user.
+ * The URL may require login. Returning it does not mean ROUTE can submit
+ * an entry on the user's behalf.
  */
 function extractSubmissionUrl($: cheerio.CheerioAPI): string | undefined {
   let submissionUrl: string | undefined;
@@ -510,21 +737,18 @@ function extractSubmissionUrl($: cheerio.CheerioAPI): string | undefined {
 
     const href = $(element).attr("href");
 
-    if (!href) {
+    if (!href || !/\/submit-to\/|submission/i.test(href)) {
       return;
     }
 
-    const normalizedHref = href.toLowerCase();
+    try {
+      const resolved = new URL(href, "https://devpost.com");
 
-    if (
-      normalizedHref.includes("/submit-to/") ||
-      normalizedHref.includes("submission")
-    ) {
-      try {
-        submissionUrl = new URL(href, "https://devpost.com").toString();
-      } catch {
-        // Ignore malformed URLs.
+      if (resolved.protocol === "https:" || resolved.protocol === "http:") {
+        submissionUrl = resolved.toString();
       }
+    } catch {
+      // Ignore malformed links.
     }
   });
 
@@ -532,28 +756,52 @@ function extractSubmissionUrl($: cheerio.CheerioAPI): string | undefined {
 }
 
 /**
- * Extracts the organization responsible for the opportunity.
- *
- * We deliberately do NOT use arbitrary page anchors as a fallback.
- * Devpost pages contain navigation links such as "Log in", and a
- * generic anchor fallback can therefore produce incorrect
- * organizations.
- *
- * Preferred sources:
- *
- * 1. Explicit Devpost organization link.
- * 2. JSON-LD organizer.
- * 3. "Devpost" as a safe provider-level fallback.
+ * Extract a prize amount only when it appears near explicit prize language.
+ */
+function extractPrize($: cheerio.CheerioAPI): string | undefined {
+  const bodyText = $("body").first().text().replace(/\s+/g, " ").trim();
+
+  const amount = String.raw`(\$\s?[\d,]+(?:\.\d+)?\s?(?:K|M|million|thousand)?)`;
+
+  const patterns = [
+    new RegExp(
+      String.raw`(?:total prizes?|prize pool|prizes? worth|cash prizes?|awards? totaling|awards? worth)[^.!?]{0,120}?${amount}`,
+      "i",
+    ),
+    new RegExp(
+      String.raw`${amount}[^.!?]{0,80}?(?:in prizes?|in cash prizes?|in awards?)`,
+      "i",
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = bodyText.match(pattern);
+
+    if (!match) {
+      continue;
+    }
+
+    // Pattern one captures the amount in group 1.
+    // Pattern two also captures the amount in group 1.
+    const prize = match[1]?.trim();
+
+    if (prize) {
+      return prize;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract the organizer from an explicit organization link or JSON-LD.
  */
 function extractOrganization($: cheerio.CheerioAPI): string {
   const organizationLink = $('a[href*="/organizations/"]').first();
+  const linkedName = organizationLink.text().replace(/\s+/g, " ").trim();
 
-  if (organizationLink.length > 0) {
-    const organization = organizationLink.text().replace(/\s+/g, " ").trim();
-
-    if (organization) {
-      return organization;
-    }
+  if (linkedName) {
+    return linkedName;
   }
 
   let jsonLdOrganization: string | undefined;
@@ -571,7 +819,6 @@ function extractOrganization($: cheerio.CheerioAPI): string {
 
     try {
       const parsed: unknown = JSON.parse(raw);
-
       const candidates = Array.isArray(parsed) ? parsed : [parsed];
 
       for (const candidate of candidates) {
@@ -580,18 +827,17 @@ function extractOrganization($: cheerio.CheerioAPI): string {
         }
 
         const record = candidate as Record<string, unknown>;
-
         const organizer = record.organizer;
 
-        if (organizer && typeof organizer === "object") {
-          const organizerRecord = organizer as Record<string, unknown>;
+        if (!organizer || typeof organizer !== "object") {
+          continue;
+        }
 
-          const name = asString(organizerRecord.name);
+        const name = asString((organizer as Record<string, unknown>).name);
 
-          if (name) {
-            jsonLdOrganization = name;
-            break;
-          }
+        if (name) {
+          jsonLdOrganization = name;
+          break;
         }
       }
     } catch {
@@ -603,116 +849,48 @@ function extractOrganization($: cheerio.CheerioAPI): string {
 }
 
 /**
- * Extracts structured preparation context from the complete Devpost
- * page.
+ * Extract structured preparation facts from one page.
  *
- * Important architectural decision:
- *
- * We expose structured facts, but we preserve the full overview
- * separately through sourceContent. The structured layer is therefore
- * an index/convenience layer, not a replacement for the source.
+ * These fields are a convenience layer; each page's original text is
+ * also preserved independently in sourceContent.
  */
 function extractPreparationFromDevpostPage(
   html: string,
 ): OpportunityPreparationContext["preparation"] {
   const $ = cheerio.load(html);
-
   const preparation: OpportunityPreparationContext["preparation"] = {};
 
-  /*
-   * ---------------------------------------------------------------
-   * IMPORTANT DATES
-   * ---------------------------------------------------------------
-   */
-  const deadline = extractFirstDate($);
+  const deadline = extractDeadline($);
 
   if (deadline) {
-    preparation.importantDates = [
-      {
-        label: "Deadline",
-        value: deadline,
-      },
-    ];
+    preparation.importantDates = [{ label: "Deadline", value: deadline }];
   }
 
-  /*
-   * ---------------------------------------------------------------
-   * ELIGIBILITY
-   * ---------------------------------------------------------------
-   *
-   * The first two meaningful list items on Devpost's participation
-   * section represent the actual eligibility constraints.
-   *
-   * Calendar controls are filtered by extractSectionListItems().
-   */
   const eligibilityItems = extractSectionListItems($, "Who can participate");
 
   if (eligibilityItems.length > 0) {
     const eligibility: PreparationEligibility[] = [];
 
-    if (eligibilityItems[0]) {
+    eligibilityItems.forEach((item, index) => {
       eligibility.push({
-        title: "Age",
-        description: eligibilityItems[0],
+        title: index === 0 ? "Eligibility" : "Additional eligibility",
+        description: item,
       });
-    }
-
-    if (eligibilityItems[1]) {
-      eligibility.push({
-        title: "Location",
-        description: eligibilityItems[1],
-      });
-    }
-
-    if (eligibility.length > 0) {
-      preparation.eligibility = eligibility;
-    }
-  }
-
-  /*
-   * ---------------------------------------------------------------
-   * REQUIREMENTS
-   * ---------------------------------------------------------------
-   *
-   * We intentionally extract the two mandatory competition-level
-   * technical constraints separately instead of treating the entire
-   * Requirements section as one large blob.
-   */
-  const requirementItems: PreparationRequirement[] = [];
-
-  const fullPageText = $("body").first().text().replace(/\s+/g, " ").trim();
-
-  if (
-    fullPageText.includes(
-      "Every entry must use OpenCV 5 for substantive image or video analysis",
-    )
-  ) {
-    requirementItems.push({
-      title: "OpenCV 5",
-      description:
-        "Every entry must use OpenCV 5 for substantive image or video analysis.",
     });
+
+    preparation.eligibility = eligibility;
   }
 
-  if (fullPageText.includes("run a meaningful component on AWS")) {
-    requirementItems.push({
-      title: "AWS",
-      description: "Every entry must run a meaningful component on AWS.",
-    });
-  }
+  const requirementItems = extractSectionListItems($, "Requirements");
 
   if (requirementItems.length > 0) {
-    preparation.requirements = requirementItems;
+    preparation.requirements = requirementItems.map(
+      (requirement): PreparationRequirement => ({
+        title: requirement,
+      }),
+    );
   }
 
-  /*
-   * ---------------------------------------------------------------
-   * CATEGORIES / SUGGESTED PROJECT AREAS
-   * ---------------------------------------------------------------
-   *
-   * Suggested project areas are context, not mandatory requirements.
-   * They therefore belong under categories.
-   */
   const projectAreas = extractSectionListItems($, "Suggested Project Areas");
 
   if (projectAreas.length > 0) {
@@ -721,14 +899,6 @@ function extractPreparationFromDevpostPage(
     }));
   }
 
-  /*
-   * ---------------------------------------------------------------
-   * SUBMISSION
-   * ---------------------------------------------------------------
-   *
-   * Final Submission Requirements contains the actual deliverables
-   * expected from participants.
-   */
   const submissionItems = extractSectionListItems(
     $,
     "Final Submission Requirements",
@@ -744,11 +914,7 @@ function extractPreparationFromDevpostPage(
             instructions: submissionItems.join("\n• "),
           }
         : {}),
-      ...(submissionUrl
-        ? {
-            submissionUrl,
-          }
-        : {}),
+      ...(submissionUrl ? { submissionUrl } : {}),
     };
   }
 
@@ -756,19 +922,127 @@ function extractPreparationFromDevpostPage(
 }
 
 /**
- * Extracts a normalized Opportunity from a direct Devpost page.
+ * Merge structured facts from several retrieved pages.
+ *
+ * Values are deduplicated without inventing or rewriting their content.
+ * Source URLs remain available in sourceContent for independent checking.
+ */
+function mergePreparation(
+  pages: RetrievedPage[],
+): OpportunityPreparationContext["preparation"] {
+  const merged: OpportunityPreparationContext["preparation"] = {};
+
+  const dates: NonNullable<
+    OpportunityPreparationContext["preparation"]["importantDates"]
+  > = [];
+
+  const requirements: NonNullable<
+    OpportunityPreparationContext["preparation"]["requirements"]
+  > = [];
+
+  const eligibility: NonNullable<
+    OpportunityPreparationContext["preparation"]["eligibility"]
+  > = [];
+
+  const constraints: NonNullable<
+    OpportunityPreparationContext["preparation"]["constraints"]
+  > = [];
+
+  const categories: NonNullable<
+    OpportunityPreparationContext["preparation"]["categories"]
+  > = [];
+
+  const submissionRequirements = new Set<string>();
+  const submissionInstructions: string[] = [];
+  let submissionUrl: string | undefined;
+
+  for (const page of pages) {
+    const preparation = extractPreparationFromDevpostPage(page.html);
+
+    dates.push(...(preparation.importantDates ?? []));
+    requirements.push(...(preparation.requirements ?? []));
+    eligibility.push(...(preparation.eligibility ?? []));
+    constraints.push(...(preparation.constraints ?? []));
+    categories.push(...(preparation.categories ?? []));
+
+    for (const requirement of preparation.submission?.requirements ?? []) {
+      submissionRequirements.add(requirement);
+    }
+
+    if (preparation.submission?.instructions) {
+      submissionInstructions.push(preparation.submission.instructions);
+    }
+
+    submissionUrl ??= preparation.submission?.submissionUrl;
+  }
+
+  // Deduplicate objects by their serialized content.
+  const uniqueObjects = <T>(items: T[]): T[] => {
+    const seen = new Set<string>();
+
+    return items.filter((item) => {
+      const key = JSON.stringify(item);
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+  };
+
+  if (dates.length > 0) {
+    merged.importantDates = uniqueObjects(dates);
+  }
+
+  if (requirements.length > 0) {
+    merged.requirements = uniqueObjects(requirements);
+  }
+
+  if (eligibility.length > 0) {
+    merged.eligibility = uniqueObjects(eligibility);
+  }
+
+  if (constraints.length > 0) {
+    merged.constraints = uniqueObjects(constraints);
+  }
+
+  if (categories.length > 0) {
+    merged.categories = uniqueObjects(categories);
+  }
+
+  if (
+    submissionRequirements.size > 0 ||
+    submissionInstructions.length > 0 ||
+    submissionUrl
+  ) {
+    merged.submission = {
+      ...(submissionRequirements.size > 0
+        ? { requirements: [...submissionRequirements] }
+        : {}),
+      ...(submissionInstructions.length > 0
+        ? {
+            instructions: [...new Set(submissionInstructions)].join("\n\n"),
+          }
+        : {}),
+      ...(submissionUrl ? { submissionUrl } : {}),
+    };
+  }
+
+  return merged;
+}
+
+/**
+ * Extract a normalized Opportunity from a direct Devpost page.
  */
 function extractOpportunityFromDevpostPage(
   html: string,
   url: string,
 ): Opportunity | null {
   const $ = cheerio.load(html);
-
   const normalizedUrl = normalizeUrl(url);
 
-  /*
-   * Prefer the visible page title, then fall back to the HTML title.
-   */
   const title =
     $("h1").first().text().replace(/\s+/g, " ").trim() ||
     $("title").first().text().replace(/\s+/g, " ").trim();
@@ -778,23 +1052,9 @@ function extractOpportunityFromDevpostPage(
   }
 
   const description = extractChallengeDescription(html);
-
   const organization = extractOrganization($);
-
-  const deadline = extractFirstDate($);
-
-  /*
-   * Devpost's public page often contains prize information in a
-   * summary block. We preserve the first useful dollar amount as the
-   * normalized prize value.
-   */
-  const bodyText = $("body").first().text().replace(/\s+/g, " ").trim();
-
-  const prizeMatch = bodyText.match(
-    /\$\s?[\d,]+(?:\.\d+)?(?:\s*(?:USD|cash))?/i,
-  );
-
-  const prize = prizeMatch?.[0]?.trim();
+  const deadline = extractDeadline($);
+  const prize = extractPrize($);
 
   return {
     id: `devpost:url:${normalizedUrl}`,
@@ -824,18 +1084,16 @@ export class DevpostProvider implements OpportunityProvider {
   readonly supportedTypes: readonly OpportunityType[] = ["hackathon"];
 
   /**
-   * Determines whether this provider owns a URL.
-   *
-   * Route's provider manager uses this before delegating direct URL
-   * retrieval or preparation.
+   * Accept only HTTPS Devpost URLs and their subdomains.
    */
   canHandleUrl(url: string): boolean {
     try {
       const parsed = new URL(url);
 
       return (
-        (parsed.protocol === "https:" && parsed.hostname === "devpost.com") ||
-        parsed.hostname.endsWith(".devpost.com")
+        parsed.protocol === "https:" &&
+        (parsed.hostname === "devpost.com" ||
+          parsed.hostname.endsWith(".devpost.com"))
       );
     } catch {
       return false;
@@ -843,21 +1101,17 @@ export class DevpostProvider implements OpportunityProvider {
   }
 
   /**
-   * Searches Devpost's public hackathon API.
+   * Search Devpost's public hackathon API.
    *
-   * Devpost's public endpoint does not provide the same stable cursor
-   * semantics as a database query, so Route uses a position-based
-   * provider cursor.
+   * Discovery behavior remains separate from preparation retrieval.
    */
   async search(
     params: OpportunitySearchParams,
   ): Promise<OpportunityProviderResult> {
     const requestedLimit = params.limit ?? DEFAULT_PAGE_SIZE;
-
     const limit = Math.max(1, Math.min(requestedLimit, DEFAULT_PAGE_SIZE));
 
     const offset = parseCursor(params.cursor);
-
     const opportunities: Opportunity[] = [];
 
     let currentOffset = offset;
@@ -867,9 +1121,8 @@ export class DevpostProvider implements OpportunityProvider {
       opportunities.length < limit &&
       pagesFetched < MAX_PAGES_PER_SEARCH
     ) {
-      const response = await fetch(
-        `${DEVPOST_API_URL}?page=${Math.floor(currentOffset / DEFAULT_PAGE_SIZE) + 1}`,
-      );
+      const page = Math.floor(currentOffset / DEFAULT_PAGE_SIZE) + 1;
+      const response = await fetch(`${DEVPOST_API_URL}?page=${page}`);
 
       if (!response.ok) {
         throw new Error(`Devpost API request failed with ${response.status}.`);
@@ -898,11 +1151,6 @@ export class DevpostProvider implements OpportunityProvider {
           continue;
         }
 
-        /*
-         * Devpost currently represents these opportunities as online
-         * hackathons. Keep the type filtering explicit even though the
-         * provider only supports hackathons.
-         */
         if (
           params.type &&
           params.type !== "all" &&
@@ -921,10 +1169,6 @@ export class DevpostProvider implements OpportunityProvider {
       currentOffset += hackathons.length;
       pagesFetched += 1;
 
-      /*
-       * A partial page means we have reached the end of the available
-       * Devpost discovery data.
-       */
       if (hackathons.length < DEFAULT_PAGE_SIZE) {
         break;
       }
@@ -940,10 +1184,9 @@ export class DevpostProvider implements OpportunityProvider {
   }
 
   /**
-   * Retrieves a specific Devpost hackathon by its URL.
+   * Retrieve a specific Devpost hackathon by URL.
    *
-   * Unlike discovery, direct retrieval fetches the actual page so
-   * Route can return richer information than the discovery API exposes.
+   * A non-success HTTP response returns null. Network failures may throw.
    */
   async getByUrl(url: string): Promise<Opportunity | null> {
     if (!this.canHandleUrl(url)) {
@@ -951,7 +1194,6 @@ export class DevpostProvider implements OpportunityProvider {
     }
 
     const normalizedUrl = normalizeUrl(url);
-
     const response = await fetch(normalizedUrl);
 
     if (!response.ok) {
@@ -964,25 +1206,22 @@ export class DevpostProvider implements OpportunityProvider {
   }
 
   /**
-   * Retrieves preparation context for a Devpost opportunity.
+   * Retrieve preparation context for a Devpost opportunity.
    *
-   * The provider fetches the page again because preparation context
-   * requires information that the normalized Opportunity intentionally
-   * does not contain.
+   * Workflow:
+   * 1. Fetch the overview page.
+   * 2. Discover relevant same-hackathon links.
+   * 3. Fetch linked pages within the configured limit.
+   * 4. Preserve each successfully retrieved page separately.
+   * 5. Merge structured facts extracted from those pages.
    *
-   * The returned context has two complementary layers:
-   *
-   * 1. Structured preparation facts.
-   * 2. Preserved source content.
-   *
-   * The second layer prevents Route from losing important information
-   * simply because a page section did not map neatly into the current
-   * structured schema.
+   * No LLM-generated summaries or inferred facts are added.
    */
   async getPreparationContext(
     opportunity: Opportunity,
   ): Promise<OpportunityPreparationContext> {
-    const response = await fetch(opportunity.url);
+    const overviewUrl = normalizeUrl(opportunity.url);
+    const response = await fetch(overviewUrl);
 
     if (!response.ok) {
       throw new Error(
@@ -990,22 +1229,24 @@ export class DevpostProvider implements OpportunityProvider {
       );
     }
 
-    const html = await response.text();
+    const overviewHtml = await response.text();
 
-    const preparation = extractPreparationFromDevpostPage(html);
+    const overview: RetrievedPage = {
+      url: overviewUrl,
+      title: extractPageTitle(overviewHtml, opportunity.title),
+      html: overviewHtml,
+    };
 
-    const overview = extractChallengeDescription(html);
+    // Retrieve relevant pages discovered from the overview and its pages.
+    const retrievedPages = await fetchLinkedPreparationPages(overview);
 
-    const sourceContent =
-      overview.length > 0
-        ? [
-            {
-              title: `${opportunity.title} — Overview`,
-              content: overview,
-              url: opportunity.url,
-            },
-          ]
-        : [];
+    // Keep every successful page as independent, source-backed content.
+    const sourceContent: PreparationSourceContent[] = retrievedPages
+      .map((page) => createSourceContent(page, opportunity.title))
+      .filter((entry): entry is PreparationSourceContent => entry !== null);
+
+    // Extract structured facts across all retrieved pages.
+    const preparation = mergePreparation(retrievedPages);
 
     return {
       opportunity,
@@ -1013,7 +1254,7 @@ export class DevpostProvider implements OpportunityProvider {
       ...(sourceContent.length > 0 ? { sourceContent } : {}),
       source: {
         provider: this.name,
-        url: opportunity.url,
+        url: overviewUrl,
         retrievedAt: new Date().toISOString(),
       },
     };
