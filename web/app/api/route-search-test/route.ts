@@ -36,6 +36,11 @@ import { createRouteMcpClient } from "@/lib/mcp/client";
  * Executes a simple opportunity search through Route.
  */
 export async function GET() {
+  // These diagnostic endpoints can invoke live tools/models; keep them development-only.
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   /**
    * Keep the client outside the try block so that the connection
    * can always be closed in finally.
