@@ -26,6 +26,11 @@ import { NextResponse } from "next/server";
 import { createRouteAgent } from "@/lib/agent/route-agent";
 
 export async function GET() {
+  // These diagnostic endpoints can invoke live tools/models; keep them development-only.
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
     const agent = createRouteAgent();
 

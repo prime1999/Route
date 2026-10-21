@@ -1,580 +1,406 @@
-# Route
+<div align="center">
 
-**An open-source MCP server for discovering, understanding, and acting on opportunities.**
+<h1>
+  <img src="assets/route-banner.svg" alt="ROUTE: open infrastructure for AI-powered opportunity workflows" width="100%">
+</h1>
 
-Route is an agent-agnostic Model Context Protocol (MCP) server that gives AI agents and developers structured access to opportunities from across the web.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+[![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-MCP-6D28D9?style=flat-square)](https://modelcontextprotocol.io)
+[![Status](https://img.shields.io/badge/status-active%20development-F59E0B?style=flat-square)](#project-status)
 
-Jobs, hackathons, scholarships, grants, fellowships, internships, accelerators, and other opportunities are scattered across different platforms. Route is being built to bring these fragmented opportunities together behind a common interface.
+**An open-source, agent-agnostic [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that lets AI agents and applications discover, understand, save, and prepare for opportunities across the web.**
 
-The goal is not to build another job board.
+[Why ROUTE](#why-route) ·
+[Workflow](#the-opportunity-workflow) ·
+[Architecture](#architecture) ·
+[MCP tools](#mcp-tools) ·
+[Providers](#providers) ·
+[Quick start](#quick-start) ·
+[Roadmap](#roadmap) ·
+[Contributing](#contributing)
 
-The goal is to build **opportunity infrastructure** that AI agents and applications can use to discover opportunities, understand them, and help users act on them.
-
-Route provides the opportunity infrastructure.
-
-The connected AI agent or application provides the reasoning, personalization, user experience, and automation.
-
----
-
-## Why Route?
-
-Opportunities are fragmented across the web.
-
-Jobs live on job boards.
-
-Hackathons live on developer platforms.
-
-Scholarships and fellowships live on education and organization websites.
-
-Grants, internships, accelerators, events, and freelance opportunities are spread across even more sources.
-
-This makes it difficult for both people and AI agents to work with opportunities efficiently.
-
-An AI agent may be able to help a user find a job or hackathon, but it still needs reliable access to the underlying opportunity information.
-
-Route provides that access through MCP.
-
-Instead of every AI application having to understand how individual opportunity platforms work, it can connect to Route and interact with a standardized opportunity interface.
+</div>
 
 ---
 
-## The Core Idea
+## Overview
 
-Route is built around an opportunity lifecycle:
+Jobs, hackathons, and other opportunities are scattered across platforms, each with its own data structure, requirements, and discovery process. As AI agents become more capable, they need one consistent way to reach those opportunities and help people pursue them.
 
-**DISCOVER → UNDERSTAND → SAVE → PREPARE → ACT → TRACK**
+ROUTE provides that. It sits between opportunity sources and AI applications and exposes them through a single MCP interface, so a different agent doesn't need a different integration for every platform.
 
-### 1. Discover
+| ROUTE **is**                                                        | ROUTE **is not**                                            |
+| :------------------------------------------------------------------ | :---------------------------------------------------------- |
+| An open-source, agent-agnostic MCP server                           | An AI agent, or an assistant tied to a particular ecosystem |
+| A common interface to opportunity sources                           | A job board                                                 |
+| A reusable infrastructure layer that agents connect to and build on | A single website that centralizes every opportunity         |
 
-Find opportunities across supported sources.
+The first implementation focuses on **jobs** and **hackathons**, using **RemoteOK** and **Devpost** as sources. The architecture is designed to grow to more opportunity types, agents, and interfaces over time.
 
-> "Find me five remote AI jobs and five AI hackathons."
-
-Route searches the relevant providers and returns normalized opportunity data.
-
-Over time, Route will support more categories including:
-
-- Jobs
-- Hackathons
-- Scholarships
-- Fellowships
-- Grants
-- Internships
-- Accelerators
-- Events
-- Freelance opportunities
-- And more
+> **The goal is simple: make opportunities accessible to AI systems through infrastructure that developers can extend and reuse.**
 
 ---
 
-### 2. Understand
+## Why ROUTE?
 
-Retrieve detailed information about an opportunity.
+Finding an opportunity is only the beginning. Someone looking for a job or a hackathon may need to search several platforms, work out different requirements, compare options, save the promising ones, and prepare an application or submission. AI agents can help with all of that, but only if they can get at the data.
 
-> "Tell me more about the second hackathon."
-
-The agent can use Route to retrieve structured information such as:
-
-- Title
-- Organization
-- Description
-- Deadline
-- Location
-- Remote/online availability
-- Prize
-- Timeline
-- Application URL
-- Source
-- Requirements
-- Other provider-specific information
-
-This allows the connected agent to explain the opportunity to the user using reliable source data.
+| Without ROUTE                                             | With ROUTE                                                     |
+| :-------------------------------------------------------- | :------------------------------------------------------------- |
+| Every agent builds its own integration for every platform | One MCP interface for every supported source                   |
+| Each platform has its own data shape                      | A shared, normalized opportunity model                         |
+| Adding a source means changing every agent                | Add a provider once, and compatible clients can use it         |
+| Opportunity plumbing competes with the agent's own work   | Developers focus on reasoning, user experience, and capability |
 
 ---
 
-### 3. Save
+## The opportunity workflow
 
-Save opportunities that the user wants to revisit.
+ROUTE is organized around the stages an opportunity goes through.
 
-> "Save this hackathon."
+```mermaid
+flowchart LR
+    A[Discover] --> B[Understand] --> C[Save] --> D[Prepare] --> E[Act] --> F[Track]
 
-Saved opportunities belong to the user's state rather than becoming part of Route's global opportunity source.
-
-This creates a bridge between discovery and taking action later.
-
----
-
-### 4. Prepare
-
-Help the user understand what is required to pursue an opportunity.
-
-> "What do I need to prepare for this hackathon?"
-
-or:
-
-> "What should I have ready before applying for this job?"
-
-Route can provide the opportunity context required by the connected AI agent to generate useful preparation guidance.
-
-For example, an agent could use opportunity requirements, deadlines, eligibility information, or application instructions to help the user prepare.
-
----
-
-### 5. Act
-
-Move from knowing about an opportunity to actually pursuing it.
-
-**This is a major part of Route's long-term vision.**
-
-The goal is for Route to provide the information and tools that allow connected AI agents and applications to help users take meaningful action.
-
-Depending on the opportunity, this could eventually include workflows such as:
-
-- Drafting a job application
-- Generating or improving a cover letter
-- Preparing answers to application questions
-- Suggesting projects for a hackathon
-- Preparing a hackathon submission
-- Helping complete application steps
-- Creating an action plan
-- Handing the user off to the original opportunity platform
-- Supporting other opportunity-specific workflows
-
-Route does **not** need to become the AI agent responsible for these actions.
-
-Instead, Route exposes the opportunity context and capabilities that an external agent can use to perform them.
-
-For example:
-
-```text
-User
- │
- │ "Help me apply for this job."
- ▼
-AI Agent
- │
- │ asks Route for opportunity details
- ▼
-Route
- │
- │ opportunity data
- ▼
-AI Agent
- │
- ├── reasons about the opportunity
- ├── uses the user's context
- ├── drafts application materials
- └── guides or automates the next steps
+    style A fill:#4f46e5,stroke:#312e81,color:#ffffff
+    style B fill:#4f46e5,stroke:#312e81,color:#ffffff
+    style C fill:#4f46e5,stroke:#312e81,color:#ffffff
+    style D fill:#7c3aed,stroke:#4c1d95,color:#ffffff
+    style E fill:#94a3b8,stroke:#475569,color:#0f172a
+    style F fill:#94a3b8,stroke:#475569,color:#0f172a
 ```
 
-This keeps Route agent-agnostic while allowing different AI systems to build different experiences on top of the same opportunity infrastructure.
+| Stage          | What it means                                                                                                                                                       | Focus   |
+| :------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------ |
+| **Discover**   | Search supported sources through one interface, with no separate integration per platform.                                                                          | Core    |
+| **Understand** | Retrieve structured details: descriptions, requirements, deadlines, eligibility, and other metadata. What is available depends on the source.                       | Core    |
+| **Save**       | Keep opportunities worth pursuing, scoped to an agent's ROUTE identity, so they can be retrieved later.                                                             | Core    |
+| **Prepare**    | Give a connected agent the context it needs to help with eligibility, planning, requirements, and checklists. ROUTE supplies context; the agent does the reasoning. | Context |
+| **Act**        | Help users move from spotting an opportunity to pursuing it: preparing materials, organizing requirements, coordinating submission steps.                           | Vision  |
+| **Track**      | Follow deadlines, application progress, submission status, and follow-up actions across the whole opportunity lifecycle.                                            | Vision  |
+
+> [!NOTE]
+> **Act** and **Track** belong to the longer-term vision. They shouldn't be confused with capabilities that are already implemented.
 
 ---
 
-### 6. Track
+## Architecture
 
-After a user decides to pursue an opportunity, Route can eventually provide the information and state needed to track what happens next.
+ROUTE is infrastructure, not the agent. It doesn't replace AI agents or become another standalone assistant. It is a shared layer that compatible agents and applications use to reach opportunity sources.
 
-Potential workflows include:
+```mermaid
+flowchart TB
+    U([Users]) --> A
 
-- Saved opportunities
-- Application status
-- Important deadlines
-- Submission status
-- Opportunity updates
-- Follow-up actions
-- Notifications
-- Changes to opportunity information
+    subgraph A [AI agents and applications]
+        direction LR
+        T[Text agents]
+        V[Voice agents]
+        O[Other interfaces]
+    end
 
-The exact tracking and automation model will evolve as Route grows.
+    A --> R{{ROUTE MCP server}}
 
----
+    subgraph P [Opportunity providers]
+        direction LR
+        RO["RemoteOK<br/>Jobs"]
+        DP["Devpost<br/>Hackathons"]
+    end
 
-## Route Is Infrastructure, Not the Agent
+    R --> P
 
-A fundamental design principle of Route is the separation between **opportunity infrastructure** and **AI agent behavior**.
-
-```text
-                    USER
-                      │
-                      ▼
-               AI AGENT / APP
-                      │
-                      │ MCP
-                      ▼
-              ┌───────────────┐
-              │     ROUTE     │
-              │               │
-              │ Discover      │
-              │ Understand    │
-              │ Save          │
-              │ Prepare       │
-              │ Act*          │
-              │ Track*        │
-              └───────┬───────┘
-                      │
-             Opportunity Sources
-              ┌───────┴───────┐
-              ▼               ▼
-          Remote OK        Devpost
-              │               │
-              └───────┬───────┘
-                      ▼
-              Normalized Data
-
-* Capabilities can evolve to support
-  agent-driven workflows.
+    style R fill:#4f46e5,stroke:#312e81,color:#ffffff
 ```
 
-Route does not dictate which AI agent a user must use.
+The design keeps three concerns apart:
 
-A developer could connect Route to:
+| Layer                       | Responsibility                                                                     |
+| :-------------------------- | :--------------------------------------------------------------------------------- |
+| **Opportunity sources**     | Provide the underlying opportunity information.                                    |
+| **ROUTE**                   | Exposes that information through a common interface.                               |
+| **Agents and applications** | Use the available capabilities to build experiences and workflows for their users. |
 
-- Alexa+
-- Claude
-- ChatGPT
-- A custom AI agent
-- An IDE agent
-- A productivity application
-- Another MCP-compatible client
+Because of that separation, improving an agent doesn't mean rebuilding every integration, and adding a provider can make another source available to every compatible client at once.
 
-The agent decides how to use Route's capabilities.
+The architecture is meant to support different agent frameworks, text interfaces, and voice-agent integrations. Whether a particular client works depends on the protocols it supports and any adapter it needs.
 
-Route's responsibility is to make opportunity information and opportunity-related capabilities accessible in a consistent way.
+### Beyond jobs and hackathons
 
----
+```mermaid
+flowchart LR
+    J[Jobs] --> I
+    H[Hackathons] --> I
+    X[Other opportunities] --> I
+    I{{"ROUTE<br/>common interface"}} --> G[AI agents and applications]
+    G --> W[Opportunity workflows]
 
-## Opportunity Infrastructure
-
-The long-term vision is for Route to provide a common infrastructure layer across many opportunity categories.
-
-```text
-                    ROUTE
-                      │
-          ┌───────────┴───────────┐
-          │                       │
-    Opportunity Data        Opportunity Tools
-          │                       │
-    ┌─────┼─────┐          ┌──────┼──────┐
-    ▼     ▼     ▼          ▼      ▼      ▼
-   Jobs  Grants  ...      Prepare  Act   Track
+    style I fill:#4f46e5,stroke:#312e81,color:#ffffff
 ```
 
-The initial implementation focuses on jobs and hackathons.
-
-The architecture is intentionally designed so additional opportunity categories and providers can be added without changing the fundamental MCP interface.
+The goal isn't to put every opportunity on one website. It is to make opportunities reachable through infrastructure that different applications can reuse.
 
 ---
 
-## MCP Tools
+## MCP tools
 
-The planned core MCP interface is:
+ROUTE exposes its capabilities through MCP.
 
-| Tool                       | Purpose                                               | Status         |
-| -------------------------- | ----------------------------------------------------- | -------------- |
-| `health_check`             | Verify the MCP server is running                      | ✅ Implemented |
-| `search_opportunities`     | Search supported opportunity sources                  | ✅ Implemented |
-| `get_opportunity`          | Retrieve detailed opportunity information             | ✅ Implemented |
-| `save_opportunity`         | Save an opportunity                                   | ✅ Implemented |
-| `prepare_opportunity`      | Provide opportunity context for preparation workflows | ✅ Implemented |
-| `list_saved_opportunities` | Retrieve saved opportunities                          | 🔮 Optional    |
+| Tool                      | Purpose                                                                |
+| :------------------------ | :--------------------------------------------------------------------- |
+| `health_check`            | Check whether the ROUTE MCP server is running.                         |
+| `search_opportunities`    | Search opportunities across supported providers.                       |
+| `get_opportunity`         | Retrieve an opportunity using its URL.                                 |
+| `save_opportunity`        | Save an opportunity for a specific ROUTE agent identity.               |
+| `get_saved_opportunities` | Retrieve the opportunities saved under a ROUTE agent identity.         |
+| `prepare_opportunity`     | Retrieve preparation context for a connected agent, where implemented. |
 
-As Route evolves, additional tools may support opportunity-specific actions and tracking workflows.
+<!--
+TODO before publishing: check every tool in this table against the tools the
+server registers today. In particular, confirm whether prepare_opportunity is
+implemented in the current build, and update its row (or remove it) to match.
+-->
 
-The goal is to keep the MCP interface independent from individual providers.
+> [!NOTE]
+> This table describes the intended public interface. What each tool returns depends on the provider and on the capabilities ROUTE currently implements. `prepare_opportunity` is only available in builds that include it.
 
-A tool should not need to know whether an opportunity came from Remote OK, Devpost, or a future provider.
+### Agent identity and saved opportunities
+
+Saved opportunities are tied to an agent identity.
+
+> [!TIP]
+> Keep and reuse the `agentId` returned when an identity is created. Using a different identity can give you a different set of saved opportunities.
+
+The exact identity lifecycle depends on the current implementation and on how a client integrates with it.
 
 ---
 
-## Provider Architecture
+## Providers
 
-Route uses a provider-based architecture.
+ROUTE separates opportunity sources from the MCP interface with a provider-based architecture. Each provider is responsible for retrieving source data and mapping it into ROUTE's normalized opportunity model. That makes it possible to add or change a provider without redesigning the server.
 
-Each provider is responsible for:
+| Provider     | Category   |
+| :----------- | :--------- |
+| **RemoteOK** | Jobs       |
+| **Devpost**  | Hackathons |
 
-1. Fetching information from an external source.
-2. Parsing the source's format.
-3. Normalizing the information.
-4. Returning Route's common opportunity format.
+These two form the initial implementation. More sources and categories can follow as the project grows.
 
-Conceptually:
+### Normalized opportunity model
 
-```text
-                         Route MCP
-                             │
-                      Opportunity API
-                             │
-                  ┌──────────┴──────────┐
-                  ▼                     ▼
-              Remote OK             Devpost
-                  │                     │
-                  ▼                     ▼
-              Normalize             Normalize
-                  │                     │
-                  └──────────┬──────────┘
-                             ▼
-                       Opportunity
+Every source is mapped into one shared structure, so clients can work with different sources in the same way.
+
+<details>
+<summary><b>View the model fields</b></summary>
+
+<br>
+
+| Field          | Description                                                                 |
+| :------------- | :-------------------------------------------------------------------------- |
+| `id`           | Provider-specific or normalized opportunity identifier.                     |
+| `title`        | Opportunity title.                                                          |
+| `type`         | Opportunity category.                                                       |
+| `organization` | Company, organizer, or organization behind the opportunity, when available. |
+| `description`  | Available description or summary.                                           |
+| `location`     | Location information, when available.                                       |
+| `remote`       | Remote-work information, when applicable.                                   |
+| `deadline`     | Application or submission deadline, when available.                         |
+| `url`          | URL used to access the opportunity.                                         |
+| `source`       | Name of the provider supplying the opportunity.                             |
+| `sourceUrl`    | URL of the original source or listing, when available.                      |
+| `prize`        | Prize information, when applicable.                                         |
+| `timeline`     | Relevant dates or timeline information, when available.                     |
+| `participants` | Participant information, when available.                                    |
+
+</details>
+
+> [!IMPORTANT]
+> Not every source supplies every field. A missing value doesn't confirm that a requirement, deadline, or other detail doesn't exist.
+
+---
+
+## Technology stack
+
+| Technology          | Used for                                                               |
+| :------------------ | :--------------------------------------------------------------------- |
+| **TypeScript**      | Application and domain logic                                           |
+| **Node.js**         | Runtime                                                                |
+| **MCP SDK**         | Exposing tools to compatible MCP clients                               |
+| **Streamable HTTP** | MCP communication over HTTP                                            |
+| **Zod**             | Schema validation                                                      |
+| **Cheerio**         | HTML parsing, where a provider needs it                                |
+| **DynamoDB**        | Persistent opportunity storage (depends on the configured persistence) |
+
+The MCP interface, opportunity services, providers, and storage are kept separate so each can change on its own.
+
+---
+
+## Quick start
+
+### Prerequisites
+
+- Node.js 22 or later
+- npm
+- Git
+- AWS credentials and the required DynamoDB configuration, if you use the DynamoDB persistence implementation
+
+### 1. Clone and install
+
+```bash
+git clone <ROUTE_REPOSITORY_URL>
+cd ROUTE/mcp
+npm install
 ```
 
-This makes it possible to add new providers without changing the MCP tools themselves.
+Replace `<ROUTE_REPOSITORY_URL>` with the repository's clone URL.
 
-Future providers may include sources for:
+### 2. Configure
 
-- Scholarships
-- Fellowships
-- Grants
-- Internships
-- Accelerators
-- Events
-- Freelance opportunities
+For DynamoDB-backed persistence, you can set the table names:
 
----
-
-## Opportunity Model
-
-Route normalizes external data into a common opportunity structure.
-
-The initial model is centered around:
-
-```text
-Opportunity
-├── id
-├── title
-├── type
-├── organization
-├── description
-├── location
-├── remote
-├── deadline
-├── url
-├── source
-├── sourceUrl
-├── prize
-├── timeline
-└── participants
+```env
+DYNAMODB_OPPORTUNITIES_TABLE=ROUTE_Opportunities
+DYNAMODB_AGENT_OPPORTUNITIES_TABLE=ROUTE_AgentOpportunities
 ```
 
-The initial opportunity types are:
+These are the default names the storage implementation uses when no override is given. AWS credentials, region, and any other required settings follow the storage and server code.
 
-- `job`
-- `hackathon`
+> [!WARNING]
+> Never commit credentials, API keys, or other secrets to version control.
 
-Additional types can be introduced as new providers and opportunity categories are added.
+### 3. Run the server
+
+```bash
+npm run dev
+```
+
+For a production build, use the build and start scripts defined in `mcp/package.json`.
+
+<!--
+TODO before publishing: confirm that `dev` is the right script name, and that
+the commands, paths, and environment variables above match the repository.
+-->
+
+### 4. Connect an MCP client
+
+Point your MCP client at the server's Streamable HTTP endpoint. The endpoint URL, transport settings, and any required headers or session handling must match the running server.
+
+<!--
+TODO before publishing: add the real endpoint URL and a sample client
+configuration here.
+-->
 
 ---
 
-## Project Status
+## Project status
 
-🚧 **Early development**
+ROUTE is under active development. It aims to be a reliable, reusable MCP infrastructure layer for opportunity-focused AI workflows.
 
-The MCP foundation, Streamable HTTP transport, provider architecture, Remote OK provider, Devpost provider, provider manager, and search infrastructure are currently being implemented and tested.
+<!--
+TODO before publishing: reconcile these lists with the code. Only mark a
+capability as implemented when it is registered, working, and covered by tests.
+-->
 
-### Currently implemented
+**Implemented**
 
-- TypeScript MCP server
-- MCP SDK integration
-- MCP client/server communication
-- Streamable HTTP transport
-- MCP session handling
-- Tool registration
-- Development MCP test client
-- `health_check`
-- Opportunity domain model
-- Zod schemas
-- Provider architecture
-- Remote OK provider
-- Devpost provider
-- Provider manager
-- Opportunity search service
-- Provider-level pagination
-- `health_check`
-- `search_opportunities`
-- `get_opportunity`
-- `save_opportunity` registration and persistence flow
+- [x] MCP server communicating over Streamable HTTP
+- [x] Provider integrations for RemoteOK (jobs) and Devpost (hackathons)
+- [x] Normalized opportunity model
+- [x] DynamoDB persistence implementation
 
-### In development / next
+**In progress**
 
-- MCP-level integration coverage for `save_opportunity`
+- [ ] Wider integration coverage for opportunity and saved-opportunity workflows
+- [ ] More complete and consistent provider data
+- [ ] More reliable persistence and agent-scoped retrieval
+- [ ] A better developer experience for connecting MCP clients
 
-### Planned
+**Planned**
 
-- Saved opportunity retrieval
-- User/session state
-- AWS Strands Agents SDK integration
-- Amazon Bedrock integration
-- `prepare_opportunity`
-- Opportunity action workflows
-- Production deployment
-- Production authentication
-- Alexa+ integration
-
-Features marked as planned are not yet implemented.
+- [ ] More opportunity providers and categories
+- [ ] More complete preparation-context workflows
+- [ ] Better user and agent state management
+- [ ] Opportunity progress tracking and follow-up workflows
+- [ ] Production deployment, authentication, and operational hardening
+- [ ] Integrations with a wider range of agents, applications, and voice interfaces
 
 ---
 
 ## Roadmap
 
-### Phase 1 — MCP Foundation
+The roadmap builds a reliable core first, then expands.
 
-- Initialize TypeScript project
-- Add official MCP SDK
-- Create MCP server
-- Implement Streamable HTTP
-- Implement MCP sessions
-- Create MCP test client
-- Implement `health_check`
+| Phase | Focus                               | What it covers                                                                                                                |
+| :---: | :---------------------------------- | :---------------------------------------------------------------------------------------------------------------------------- |
+|   1   | **MCP foundation**                  | The core server, MCP transport, tool registration, schemas, and testing infrastructure.                                       |
+|   2   | **Opportunity providers**           | Provider integrations, normalized data, and searching and retrieving opportunities from different sources.                    |
+|   3   | **Persistent opportunity state**    | Saving and retrieving opportunities through an agent identity, with reliable storage and clear identity semantics.            |
+|   4   | **Preparation workflows**           | Better context for connected agents, so they can help users understand requirements and prepare.                              |
+|   5   | **Production readiness**            | Reliability, security, configuration, deployment, testing, and observability.                                                 |
+|   6   | **Broader agent and app ecosystem** | A wider range of agents, frameworks, applications, and interfaces, including voice agents where a protocol or adapter exists. |
 
-### Phase 2 — Opportunity Infrastructure
-
-- Define Opportunity domain model
-- Add Zod schemas
-- Define provider interface
-- Implement Remote OK provider
-- Implement Devpost provider
-- Add normalization layer
-- Implement provider pagination
-- Implement `search_opportunities`
-- Implement `get_opportunity`
-
-### Phase 3 — User State
-
-- Configure DynamoDB
-- Validate the `save_opportunity` MCP contract
-- Implement saved opportunity retrieval
-- Add user/session state
-
-### Phase 4 — AI-Assisted Opportunity Workflows
-
-- Integrate AWS Strands Agents SDK
-- Integrate Amazon Bedrock
-- Implement `prepare_opportunity`
-- Build job preparation workflows
-- Build hackathon preparation workflows
-- Explore opportunity-specific action workflows
-
-### Phase 5 — Production MCP
-
-- Deploy Route MCP server
-- Configure HTTPS
-- Configure production authentication
-- Benchmark MCP response latency
-- Test with external MCP clients
-- Document production connection
-
-### Phase 6 — Alexa+
-
-- Build Alexa+ integration
-- Connect Alexa+ to Route MCP
-- Test conversational opportunity discovery
-- Demonstrate Route through Alexa+
-
-### Future — Opportunity Action Infrastructure
-
-Expand Route beyond discovery into the broader opportunity lifecycle:
-
-**Discover → Understand → Save → Prepare → Act → Track**
-
-Potential directions include:
-
-- More opportunity categories
-- More opportunity providers
-- Application assistance
-- Opportunity-specific preparation
-- Opportunity tracking
-- Notifications
-- Personalization
-- Opportunity matching
-- Community-built providers
-- Community-built integrations
-- Additional MCP clients
-- Agent Skills
+These phases describe where the project is heading. They don't claim every capability already exists.
 
 ---
 
-## Design Principles
+## Design principles
 
-### MCP First
-
-Route is fundamentally an MCP server.
-
-The web interface, AI agents, and integrations should consume Route rather than define it.
-
-### Agent Agnostic
-
-Route should not require a particular AI assistant.
-
-Any compatible MCP client should be able to use Route.
-
-### Opportunity First
-
-Route exists to make opportunities easier to discover, understand, and act on.
-
-### Live Opportunities
-
-The initial system is designed around retrieving opportunities from external sources rather than maintaining a massive static database.
-
-### Provider Independence
-
-External platforms are isolated behind provider implementations.
-
-### Composable Actions
-
-Route should provide small, useful capabilities that AI agents and applications can combine into larger workflows.
-
-### Small Core
-
-Route should expose a focused set of composable tools rather than becoming a large monolithic platform.
-
-### Open by Default
-
-Developers should be able to extend Route with new providers, tools, clients, and integrations.
+| Principle                 | What it means                                                                                                        |
+| :------------------------ | :------------------------------------------------------------------------------------------------------------------- |
+| **MCP first**             | MCP is the standard interface for exposing ROUTE's capabilities to compatible clients.                               |
+| **Agent agnostic**        | Opportunity access doesn't depend on any particular agent, model provider, framework, or interface.                  |
+| **Opportunity first**     | Focus on the data and infrastructure that useful opportunity workflows need.                                         |
+| **Live opportunities**    | Fetch from supported sources where possible, while accepting that freshness and completeness can vary.               |
+| **Provider independence** | Source-specific retrieval and mapping stay separate from the core MCP interface.                                     |
+| **Composable workflows**  | Expose reusable capabilities that agents can combine with their own reasoning and tools.                             |
+| **Small core**            | Keep the core about opportunity access, normalization, and shared infrastructure, not every possible agent behavior. |
+| **Open by default**       | Build an extensible foundation that developers can inspect, adapt, and contribute to.                                |
 
 ---
 
-## Open Source
+## Who is ROUTE for?
 
-Route is intended to be an open-source project.
+ROUTE is for developers building:
 
-The project uses the MIT License.
+- **AI agents** that discover and evaluate jobs or hackathons
+- **Voice assistants** that help people explore opportunities
+- **Applications** that need one consistent interface to several opportunity sources
+- **Agent workflows** that save opportunities and come back to them later
+- **New opportunity-focused products** that don't want to build every source integration themselves
 
-Contributions are welcome as the project matures.
-
-Potential contribution areas include:
-
-- New opportunity providers
-- Provider normalization
-- MCP tools
-- Opportunity workflows
-- Tests
-- Documentation
-- Client integrations
-- Agent integrations
-- Performance improvements
-- Bug fixes
-
-If you want to add a new provider, the goal is that you should be able to implement the provider without modifying the core MCP tool logic.
+The aim is to make opportunity access reusable, so developers can spend their time on the experience they want to build.
 
 ---
 
 ## Contributing
 
-Route is open source and contributions are welcome.
+ROUTE is an open-source infrastructure project, and contributions are welcome. You should be able to inspect the architecture, understand the provider model, add integrations, and build on top of it.
 
-See `CONTRIBUTING.md` for development guidelines, architecture conventions, testing practices, and documentation workflow.
+Good places to start:
 
-The primary track is:
+- Adding opportunity providers
+- Improving opportunity normalization
+- Expanding automated tests
+- Improving MCP client compatibility
+- Strengthening persistence and error handling
+- Improving documentation and setup instructions
+- Exploring new opportunity-focused workflows
 
-**Alexa+**
-
-The project is also being designed around open MCP infrastructure and AWS technologies.
-
-The Alexa+ integration is intentionally kept separate from the core MCP so that Route remains useful to other MCP-compatible clients.
+If the repository has contribution guidelines, please read them before opening a pull request.
 
 ---
 
 ## License
 
-MIT License.
+ROUTE is released under the [MIT License](LICENSE).
 
-See `LICENSE` for the full license text.
+<div align="center">
+
+<sub>Built so that opportunities are within reach of every agent.</sub>
+
+<br>
+
+<sub><a href="#readme">Back to top</a></sub>
+
+</div>

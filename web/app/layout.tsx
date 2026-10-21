@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ROUTE",
-  description: "Mcp server for agents to get and use opportunity informations",
+  title: "ROUTE — Opportunity Infrastructure",
+  description: "Discover opportunities, understand what they require, and prepare to pursue them — powered by ROUTE MCP.",
 };
 
 export default function RootLayout({ children }: any) {

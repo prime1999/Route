@@ -128,8 +128,16 @@ export function createRouteAgent(): Agent {
    * The model ID can also be changed later if we decide that another
    * Gemini model is more appropriate for the final demo.
    */
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    throw new Error(
+      "GEMINI_API_KEY is not configured. Add it to web/.env.local; never expose it with a NEXT_PUBLIC_ variable.",
+    );
+  }
+
   const model = new GoogleModel({
-    modelId: "gemini-3.1-flash-lite",
+    apiKey: geminiApiKey,
+    modelId: process.env.ROUTE_GEMINI_MODEL || "gemini-3.8-flash",
   });
 
   /**
@@ -164,7 +172,7 @@ Route currently provides:
 - jobs
 - hackathons
 
-Route currently exposes tools for:
+Route exposes MCP tools for the capabilities available from the connected server, which may include:
 - searching opportunities
 - retrieving a specific opportunity by URL
 - retrieving preparation context for a specific opportunity
@@ -199,6 +207,23 @@ Use prepare_opportunity when the user wants:
 
 Do not call prepare_opportunity simply to retrieve basic opportunity
 information that get_opportunity already provides.
+
+Use prepare_opportunity when the user wants:
+- a deeper understanding of a hackathon or job
+- requirements, rules, dates, FAQs, resources, or submission context
+- help preparing to pursue an opportunity
+- the source pages behind an opportunity summarized or compared
+
+Use get_saved_opportunities when the user asks to review, list, or return to saved opportunities.
+
+SAVING AND USER CONSENT
+
+- Saving changes user state. Never call save_opportunity merely because an opportunity was found or discussed.
+- Only save after the user gives clear, explicit consent to save a specific opportunity.
+- If the user asks to save something but has not identified the specific item, ask which item.
+- Never invoke save_opportunity from the conversational model. The interface handles saving through a separate, explicit confirmation action.
+- If the user asks to save something in chat, direct them to the Save button on the specific opportunity card. Do not claim it has been saved.
+- Never claim an opportunity was saved unless the dedicated save action returns success.
 
 
 SPECIFIC OPPORTUNITY WORKFLOW
