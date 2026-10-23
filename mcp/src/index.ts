@@ -316,7 +316,7 @@ const httpServer = createServer(async (req, res) => {
  *
  * Once this callback executes, Route is listening for MCP connections.
  */
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`
 ========================================
 Route MCP Server
