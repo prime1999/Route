@@ -33,7 +33,7 @@
  *
  *   - Claude
  *   - OpenAI
- *   - Gemini
+ *   - Groq
  *   - Alexa+
  *   - their own agent
  *   - another MCP-compatible application
@@ -53,7 +53,7 @@
 
 import { Agent, McpClient } from "@strands-agents/sdk";
 
-import { GoogleModel } from "@strands-agents/sdk/models/google";
+import { OpenAIModel } from "@strands-agents/sdk/models/openai";
 
 /**
  * The URL of the Route MCP server.
@@ -118,7 +118,7 @@ export function createRouteAgent(): Agent {
   });
 
   /**
-   * Configure Gemini as the reasoning model.
+   * Configure Groq as the reasoning model.
    *
    * Strands separates the model from the agent orchestration layer.
    *
@@ -126,18 +126,21 @@ export function createRouteAgent(): Agent {
    * Route's MCP tools are connected.
    *
    * The model ID can also be changed later if we decide that another
-   * Gemini model is more appropriate for the final demo.
+   * Groq model is more appropriate for the final demo.
    */
-  const geminiApiKey = process.env.GEMINI_API_KEY;
-  if (!geminiApiKey) {
+  const groqApiKey = process.env.GROQ_API_KEY;
+  if (!groqApiKey) {
     throw new Error(
-      "GEMINI_API_KEY is not configured. Add it to web/.env.local; never expose it with a NEXT_PUBLIC_ variable.",
+      "GROQ_API_KEY is not configured. Add it to web/.env.local; never expose it with a NEXT_PUBLIC_ variable.",
     );
   }
 
-  const model = new GoogleModel({
-    apiKey: geminiApiKey,
-    modelId: process.env.ROUTE_GEMINI_MODEL || "gemini-3.8-flash",
+  const model = new OpenAIModel({
+    api: "chat",
+    apiKey: groqApiKey,
+    // Groq exposes an OpenAI-compatible API
+    clientConfig: { baseURL: "https://api.groq.com/openai/v1" },
+    modelId: process.env.ROUTE_GROQ_MODEL || "llama-3.3-70b-versatile",
   });
 
   /**
@@ -410,7 +413,7 @@ Do not sound like a database query or developer console.
    *
    * This is the key connection:
    *
-   *   Gemini
+   *   Groq
    *      ↓
    *   Strands Agent
    *      ↓

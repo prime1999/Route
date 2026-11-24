@@ -141,7 +141,7 @@ async function runKeywordFallback(userText: string) {
     if (!tool) {
       return NextResponse.json({
         success: false,
-        error: `Keyword mode is active because GEMINI_API_KEY is not set, but ROUTE does not expose ${requestedName}. Add a Gemini key for conversational tool selection.`,
+        error: `Keyword mode is active because GROQ_API_KEY is not set, but ROUTE does not expose ${requestedName}. Add a Groq API key for conversational tool selection.`,
       }, { status: 501 });
     }
 
@@ -164,7 +164,7 @@ async function runKeywordFallback(userText: string) {
     if (missing.length) {
       return NextResponse.json({
         success: false,
-        error: `Keyword mode can't safely fill required fields for ${requestedName}: ${missing.join(", ")}. Configure GEMINI_API_KEY for the full assistant experience.`,
+        error: `Keyword mode can't safely fill required fields for ${requestedName}: ${missing.join(", ")}. Configure GROQ_API_KEY for the full assistant experience.`,
       }, { status: 501 });
     }
 
@@ -219,7 +219,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Write a message first." }, { status: 400 });
     }
 
-    if (!process.env.GEMINI_API_KEY) {
+    if (!process.env.GROQ_API_KEY) {
       return await runKeywordFallback(latestUserMessage.content);
     }
 
@@ -296,7 +296,7 @@ export async function POST(request: Request) {
         success: false,
         error: error instanceof Error
           ? error.message
-          : "The assistant request failed. Check the ROUTE MCP connection and Gemini configuration.",
+          : "The assistant request failed. Check the ROUTE MCP connection and Groq configuration.",
       },
       { status: 500 },
     );

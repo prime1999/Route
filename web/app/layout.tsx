@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Poppins } from "next/font/google";
+import { Geist_Mono, Instrument_Serif, Poppins } from "next/font/google";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -7,6 +7,7 @@ const poppins = Poppins({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
 });
+const serif = Instrument_Serif({ variable: "--font-serif", subsets: ["latin"], weight: "400", style: ["normal", "italic"] });
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
@@ -21,7 +22,7 @@ export default function RootLayout({ children }: any) {
   return (
     <html
       lang="en"
-      className={`${poppins.variable} ${geistMono.variable} h-full dark antialiased`}
+      className={`${poppins.variable} ${geistMono.variable} ${serif.variable} h-full dark antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
