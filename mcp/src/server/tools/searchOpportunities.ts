@@ -26,25 +26,21 @@ export function registerSearchOpportunitiesTool(server: McpServer): void {
         "Searches Route's supported opportunity sources for jobs and hackathons. Use keyword, type, remote, limit, and cursor to control the search.",
 
       inputSchema: {
-        keyword: z.string().optional(),
-
-        type: z.enum(["job", "hackathon", "all"]).optional(),
-
-        remote: z.boolean().optional(),
-
-        limit: z.number().int().positive().optional(),
-
-        cursor: z.string().optional(),
+        keyword: z.string().nullish(),
+        type: z.enum(["job", "hackathon", "all"]).nullish(),
+        remote: z.boolean().nullish(),
+        limit: z.number().int().positive().nullish(),
+        cursor: z.string().nullish(),
       },
     },
 
     async (input) => {
       const result = await searchService.search({
-        keyword: input.keyword,
-        type: input.type,
-        remote: input.remote,
-        limit: input.limit,
-        cursor: input.cursor,
+        keyword: input.keyword ?? undefined,
+        type: input.type ?? undefined,
+        remote: input.remote ?? undefined,
+        limit: input.limit ?? undefined,
+        cursor: input.cursor ?? undefined,
       });
 
       return {
