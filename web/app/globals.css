@@ -1855,6 +1855,11 @@ a {
 }
 
 /* App-style layout: fixed to viewport height, only the message list scrolls */
+html,
+body {
+  height: 100%;
+  overflow: auto;
+}
 .route-shell {
   height: 100vh;
   height: 100dvh;
